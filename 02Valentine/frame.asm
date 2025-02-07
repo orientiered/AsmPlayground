@@ -1,4 +1,5 @@
-; Draw frame with text in it
+; MIPT 2025 ---- Morgachev Dmitri
+; Draw centered frame with text in it
 ;---------------------------------------
 
 .model tiny
@@ -9,17 +10,23 @@
     _WIDTH    equ 80
     _HEIGHT   equ 25
 
-    FrameStyle db '1234 6789'
-    STRING     db 'Amogus'
+    DbgFrameStyle db '1234 6789'
+
+    FrameStyle  db  201, 205, 187
+                db  186, ' ', 186
+                db  200, 205, 188
+
+    STRING     db 'Amogus', 0
 
 .code
 org 100h
 Start:  mov ax, VIDEO_SEG
         mov es, ax          ; es = VIDEO_SEG
 
-        mov dx, 3130h         ; 51h = text style, 30h = lengths
+        mov dx, 3126h       ; 51h = text style, 30h = lengths
         mov bx, offset FrameStyle
-        mov cx, 10          ; height = 10
+        mov si, offset STRING
+        mov cx, 11          ; height = 10
         call DrawFrame
 
         mov ax, 4C00h       ; DOS Fn 4Ch = exit(al)
@@ -43,14 +50,15 @@ DrawFrame proc
 
     ;FIRST LINE
         mov  si,  cx; si  = cx (height)
-        ; x_0 = (_WIDTH - dx) / 2 * 2
-        ; y_0 = (_HEIGHT - height) / 2
-        ; offset = (y_0  + y) * _WIDTH + x_0 = ((_HEIGHT - height) / 2 + y + 1) * _WIDTH - dx
-        mov  di, _WIDTH * 2
+
+        mov  al, dl ; al = length
+        mov  ah, cl ; ah = height
+        call GetCenteredCorner ; di = offset
+
         push di    ; saving di
 
-        mov cl, dl
-        mov ah, dh
+        mov cl, dl ; setting length
+        mov ah, dh ; setting style byte
         call DrawLine
 
     ;MIDDLE LINES
@@ -62,7 +70,7 @@ DrawFrame proc
 
         push di     ; saving di
 
-        mov cl, dl
+        mov cl, dl  ; setting length
         call DrawLine
 
         dec si                  ; height --
@@ -74,12 +82,25 @@ DrawFrame proc
         pop di      ; restoring di
         add di, _WIDTH * 2; di++
 
-        mov cl, dl
+        mov cl, dl  ; setting length
         call DrawLine
 
 
-        ; TEXT
-        pop si     ; restoring si to draw text
+    ;TEXT
+        ; bx is now free to use
+        pop bx     ; restoring si to bx draw text
+        ; bx = msg
+
+        call Strlen
+        ; ax = strlen(msg)
+
+        mov cx, ax ; cx = strlen(msg)
+        mov ah, 1  ; height = 1
+        call GetCenteredCorner ; di = offset
+
+        mov ah, dh ; ah = style
+        call DrawText
+
 
         ret
 endp
@@ -88,12 +109,72 @@ endp
 
 ;======================================================================================
 ; Calculate left upper corner position for centered box
-; Arg:
-
+; Arg: al - length
+;      ah - height
+; Ret: di - offset
+; Destr: ax, di
 ;======================================================================================
+; x0 = (_WIDTH - length) / 2
+; y0 = (_HEIGHT - height) / 2
+; offset = 2 * ( y0 * _WIDTH + x0)
+GetCenteredCorner proc
+        mov di, ax  ; di = height * 100 h + length
+        shr di, 8   ; di = height
+        xor ah, ah  ; ax = length
 
+        neg ax      ; ax = -length
+        neg di      ; di = -height
+        add ax, _WIDTH  ; ax = _WIDTH - length
+        add di, _HEIGHT ; di = _HEIGHT - height
+
+        shr ax, 1   ; ax = (_WIDTH - length) / 2 = x0
+        shr di, 1   ; di = (_HEIGHT - height)/ 2 = y0
+
+        xchg ax, di ; ax = y0, di = x0
+
+    ; We can use
+    ; shl ax, 4         ; ax = 16 ax
+    ; lea ax, ax + ax*4 ; ax = 80 ax
+    ; To do multiplication by _WIDTH = 80
+        push dx     ; saving dx
+        push cx     ; saving cx
+
+    ; i hate mul instruction
+    ; why i can't multiply by constant????????
+        mov  cx, _WIDTH
+        mul  cx ; ax = y0 * _WIDTH
+
+        pop  cx      ; restoring cx
+        pop  dx      ; restoring dx
+
+        add di, ax  ; di = x0 + y0 * _WIDTH
+        shl di, 1   ; di = offset
+        ret
+endp
 ;--------------------------------------------------------------------------------------
 
+
+;======================================================================================
+; Draw text to video memory
+; Args: es - video segment
+;       ah - style
+;       bx - msg addr
+;       cx - length
+;       di - offset
+; Ret: None
+; Destr: ax, bx, cx, di
+;======================================================================================
+DrawText    proc
+    textDraw_loop:
+        mov al, byte ptr [bx]
+        inc bx
+        stosw   ; es:[di] = ax, di += 2
+        loop textDraw_loop
+
+        ret
+endp
+
+;--------------------------------------------------------------------------------------
 
 
 ;======================================================================================
@@ -129,8 +210,30 @@ DrawLine proc
 
         ret
 endp
-;======================================================================================
+;--------------------------------------------------------------------------------------
 
+
+;======================================================================================
+;  Strlen for '\0'-terminated strings
+;  Arg: bx - string address
+;  Ret: ax - length
+;  Destr: ax
+;======================================================================================
+Strlen proc
+        xor ax, ax          ; ax = 0
+    STRLEN_LOOP:
+        cmp byte ptr [bx], 0         ; if (mem[bx] == 0)
+        je STRLEN_LOOP_END  ; return ax
+                            ; else
+        inc ax              ; ax ++
+        inc bx              ; bx ++
+        jmp STRLEN_LOOP     ; goto loop
+    STRLEN_LOOP_END:
+        sub bx, ax          ; bx -= strlen(msg)
+
+        ret
+endp
+;--------------------------------------------------------------------------------------
 
 
 
