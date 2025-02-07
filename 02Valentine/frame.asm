@@ -3,7 +3,7 @@
 ;---------------------------------------
 
 .model tiny
-
+.286
 
 .data
     VIDEO_SEG equ 0b800h
@@ -16,14 +16,18 @@
                 db  186, ' ', 186
                 db  200, 205, 188
 
-    STRING     db 'Amogus', 0
+    STRING     db 'Mul is awful', 0
 
 .code
 org 100h
 Start:  mov ax, VIDEO_SEG
         mov es, ax          ; es = VIDEO_SEG
 
-        mov dx, 3126h       ; 51h = text style, 30h = lengths
+        mov bx, 82h         ; first symbol in cmd args
+        call AsciiToInt
+        mov dl, al          ; dl = length(al)
+
+        mov dh, 31h       ; 51h = text style
         mov bx, offset FrameStyle
         mov si, offset STRING
         mov cx, 11          ; height = 10
@@ -136,16 +140,7 @@ GetCenteredCorner proc
     ; shl ax, 4         ; ax = 16 ax
     ; lea ax, ax + ax*4 ; ax = 80 ax
     ; To do multiplication by _WIDTH = 80
-        push dx     ; saving dx
-        push cx     ; saving cx
-
-    ; i hate mul instruction
-    ; why i can't multiply by constant????????
-        mov  cx, _WIDTH
-        mul  cx ; ax = y0 * _WIDTH
-
-        pop  cx      ; restoring cx
-        pop  dx      ; restoring dx
+        imul ax, _WIDTH
 
         add di, ax  ; di = x0 + y0 * _WIDTH
         shl di, 1   ; di = offset
@@ -236,6 +231,31 @@ endp
 ;--------------------------------------------------------------------------------------
 
 
+;======================================================================================
+; Convert string that ends with ' ' to int
+; Doesn't support '-'
+; Args: bx - string addr
+; Ret:  ax - result of conversion
+; Destr: ax
+;======================================================================================
+AsciiToInt  proc
+        xor  ax, ax ; ax = 0
+        push bx     ; storing bx
+    atoi_loop:
+        cmp byte ptr [bx], 0Dh ; if (mem[bx] == 0)
+        je atoi_loop_end     ; ret ax
+
+        imul ax, 10          ; ax *= 10
+        add  ax, [bx]        ; ax = 10*ax + [bx]
+        sub  ax, '0'         ; ax = 10*ax + ([bx] - char 0)
+
+        inc  bx              ; bx ++
+        jmp atoi_loop
+    atoi_loop_end:
+        pop  bx              ; restoring bx
+        ret
+endp
+;--------------------------------------------------------------------------------------
 
 ; keep this line at the end of code
         end Start
