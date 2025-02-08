@@ -10,6 +10,9 @@
     _WIDTH    equ 80
     _HEIGHT   equ 25
 
+    DFLT_LENGTH = 25
+    DFLT_HEIGHT = 11
+
     DbgFrameStyle db '1234 6789'
 
     FrameStyle  db  201, 205, 187
@@ -23,14 +26,29 @@ org 100h
 Start:  mov ax, VIDEO_SEG
         mov es, ax          ; es = VIDEO_SEG
 
-        mov bx, 82h         ; first symbol in cmd args
-        call AsciiToInt
-        mov dl, al          ; dl = length(al)
+    ;Parsing cmd args
+        mov bx, 81h         ; first symbol in cmd args
 
+    ;First arg: length
+        call AsciiToInt
+        mov dl, al          ; dl = length    (al)
+        cmp ax, 2           ; if (ax <= 2)
+        ja  skip_default_length
+        mov dl, DFLT_LENGTH ; setting default length
+    skip_default_length:
+
+    ;Second arg: height
+        call AsciiToInt
+        mov cx, ax          ; cx = height
+        cmp ax, 3           ; if (ax <= 3)
+        ja skip_default_height
+        mov cx, DFLT_HEIGHT ; setting default length
+    skip_default_height:
+
+    ;Setting other DrawFrame params
         mov dh, 31h       ; 51h = text style
         mov bx, offset FrameStyle
         mov si, offset STRING
-        mov cx, 11          ; height = 10
         call DrawFrame
 
         mov ax, 4C00h       ; DOS Fn 4Ch = exit(al)
@@ -232,27 +250,51 @@ endp
 
 
 ;======================================================================================
-; Convert string that ends with ' ' to int
-; Doesn't support '-'
+; Convert string to number
+; Skips all spaces until first digit
+; Stops when reaches first non-digit char
 ; Args: bx - string addr
 ; Ret:  ax - result of conversion
-; Destr: ax
+;       bx - first position after number
+; Destr: ax, bx
 ;======================================================================================
 AsciiToInt  proc
         xor  ax, ax ; ax = 0
-        push bx     ; storing bx
+        push cx     ; storing cx
+
+        call SkipSpaces
+
     atoi_loop:
-        cmp byte ptr [bx], 0Dh ; if (mem[bx] == 0)
-        je atoi_loop_end     ; ret ax
+        xor cx, cx              ; cx = 0
+        mov cl, byte ptr [bx]   ; cx (temp) = mem[bx]
+        sub cx, '0'             ; cx = mem[bx] - char 0
+
+        cmp cx, 9             ; if ( cx - 9 > 0 ) <=> !isdigit(mem[bx])
+        ja  atoi_loop_end     ; ret ax, bx
 
         imul ax, 10          ; ax *= 10
-        add  ax, [bx]        ; ax = 10*ax + [bx]
-        sub  ax, '0'         ; ax = 10*ax + ([bx] - char 0)
-
+        add  ax, cx          ; ax += mem[bx] - char 0
         inc  bx              ; bx ++
         jmp atoi_loop
     atoi_loop_end:
-        pop  bx              ; restoring bx
+        pop cx      ; restoring cx
+        ret
+endp
+;--------------------------------------------------------------------------------------
+
+;======================================================================================
+; Skips space characters in the string (currently only ' ')
+; Args: bx - string addr
+; Ret:  bx - moved addr to first non-space char
+; Destr:bx
+;======================================================================================
+SkipSpaces      proc
+    skipSpace_loop:
+        cmp byte ptr [bx], ' '  ; if ([bx] != space)
+        jne skipSpace_end       ; return bx
+        inc bx                  ; bx++
+        jmp skipSpace_loop      ; goto loop
+    skipSpace_end:
         ret
 endp
 ;--------------------------------------------------------------------------------------
