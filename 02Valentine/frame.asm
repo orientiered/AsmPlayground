@@ -18,6 +18,8 @@
     DFLT_LENGTH = 25
     DFLT_HEIGHT = 11
 
+    FRAME_TIME = 16000 ; in mcs
+
     DbgFrameStyle db '1234 6789'
 
     FrameStyle:
@@ -62,7 +64,7 @@ Start:  mov ax, VIDEO_SEG
 ;        ah - style byte
 ;     ds:si - frame style addr
 ;     ds:di - string addr to draw in frame
-; Destr: ax, dx, si, di
+; Destr: ax, bx, dx, si, di
 ;======================================================================================
 ParseCmd    proc
         mov di, 81h         ; first symbol in cmd args
@@ -91,18 +93,49 @@ ParseCmd    proc
 
     ; Fourth arg: frame style
         call AsciiToInt
-        sub ax, 1
+        cmp ax, 0
+        je  customFrameStyle
 
+        sub ax, 1
         mov si, ax  ;si = ax
         shl si, 3   ;si = 8*ax
         add si, ax  ;si = 9*ax
         add si, offset FrameStyle   ; si = Framestyle + 9*ax
+        jmp frameStyleEnd
 
+    customFrameStyle:
+        call SkipSpaces
+        mov si, di  ; si(framestyle) = current position
+        add di, 9   ; skipping 9 framestyle symbols
+    frameStyleEnd:
+        call SkipSpaces
+
+        call GetTextStr
+        ; cx = length of string
     ;Setting other DrawFrame params
         mov ah, bh       ; ah = text style
-        mov di, offset STRING
     parseCmd_end:
 
+        ret
+endp
+;--------------------------------------------------------------------------------------
+
+;======================================================================================
+; Extracts string in ' quotes'
+; Doesn't check if first symbol is quote
+; Args: ds:di : first quote addr
+;
+; Ret : ds:di : first string symbol
+;          cx : length of string
+; Destr: al, di, cx
+;======================================================================================
+GetTextStr      proc
+
+        inc di      ; moving ptr to first symbol
+        mov al, 39 ; ' terminator
+        call Strlen
+
+        sub di, cx  ; moving di back
         ret
 endp
 ;--------------------------------------------------------------------------------------
@@ -112,17 +145,64 @@ endp
 ;   Draw centered frame with text in it
 ;   Args: es : videoSegment address
 ;      ds:si : style symbols array addr(char[9])
-;      ds:di : null-terminated text addr
+;         cx : text length
+;      ds:di : text addr
 ;         ah : style byte
 ;         dl : width
 ;         dh : height
 ;  Return: None
-;  Destr: ax, bx, cx, si, di,
+;  Destr: ax, bx, cx, si, di
 ;======================================================================================
 DrawFrame proc
-        push di ; saving text addr
-    ;FIRST LINE
-        call GetCenteredCorner ; di = offset
+        push di     ; saving text addr
+        push cx     ; saving text len
+
+    ; Opening animation
+        mov bl, dl      ; saving width in bl
+        mov dl, 3       ; minimal width
+
+    ANIM_LOOP:
+        cmp bl, dl
+        je ANIM_LOOP_END
+
+        push dx ; saving dx
+        call DrawFrameBorders
+
+
+    ; Wait syscall
+        mov bh, ah  ; saving ah
+        mov ah, 86h ; DOS Fn 86h = wait(cx|dx mcs)
+
+        mov dx, FRAME_TIME ; wait time
+
+        int 15h
+
+        pop dx      ; restoring registers
+        inc dl      ; dl++
+        mov ah, bh
+        jmp ANIM_LOOP
+    ANIM_LOOP_END:
+
+        pop dx      ; restoring text len
+        pop si      ; restoring text addr
+        call DrawCenteredText
+
+        ret
+endp
+;--------------------------------------------------------------------------------------
+
+;======================================================================================
+; Draw frame borders and fill background
+; Args: ah - style attribute
+;       es :video segment
+;       dl: frame width
+;       dh: frame height
+; Ret: si = si + 9, cx = 0, dh = 0
+; Destr: al, cx, dh, di
+;======================================================================================
+DrawFrameBorders        proc
+        ;FIRST LINE
+        call GetCenteredCorner ; (dl, dh) -> di
 
         mov cl, dl ; setting length
         xor ch, ch ; zeroing high byte
@@ -139,8 +219,9 @@ DrawFrame proc
         add di, cx      ; shifting di to next line
 
         mov cl, dl  ; setting length
-        call DrawLine
-        sub si, 3   ; correcting si
+        call DrawLine ;
+
+        sub si, 3   ; correcting si (because DrawLine adds 3 to si)
 
         dec dh                  ; height --
         cmp dh, 0               ; while (dh != 0)
@@ -156,25 +237,30 @@ DrawFrame proc
 
         add di, cx      ; shifting di to next line
 
-        mov cl, dl  ; setting length
+        mov cl, dl      ; setting length
         call DrawLine
 
-    ;TEXT
-        mov bh, ah ; saving style byte
-        pop si     ; restoring text addr
-        mov di, si ; strlen (ds:di (text addr) )
-        call Strlen
-        ; cx = strlen(msg)
+        sub si, 9       ; si is not destroyed
+        ret
+endp
+;--------------------------------------------------------------------------------------
 
-        mov dl, cl ;
+
+;======================================================================================
+; Draws text in center of the screen
+; Args: dl - text length
+;    ds:si - text addr
+;       ah - style attribute
+; Ret: cx = 0
+; Destr: al, cx, dx, si, di
+;======================================================================================
+DrawCenteredText       proc
         mov dh, 1  ; height = 1
         call GetCenteredCorner ; di = offset
 
         mov cl, dl ; cl = strlen
         xor ch, ch ;
-        mov ah, bh ; restoring style byte
         call DrawText
-
 
         ret
 endp
@@ -224,14 +310,14 @@ endp
 
 
 ;======================================================================================
-; Draw text to video memory
+; Draw cx chars to video memory
 ; Args: es - video segment
 ;       ah - style
 ;       cx - length
 ;       di - offset
 ;       si - msg addr
-; Ret: None
-; Destr: ax, cx, di, si
+; Ret: cx = 0
+; Destr: al, cx, di, si
 ;======================================================================================
 DrawText    proc
     textDraw_loop:
@@ -279,10 +365,12 @@ endp
 
 
 ;======================================================================================
-;  Strlen for '\0'-terminated strings
+;  Strlen with custom terminator char
 ;  Arg: ds:di - string address
+;          al - terminator byte
 ;  Ret: cx - length
-;  Destr: ax, cx, di
+;       di - symbol after terminator char
+;  Destr: cx, di
 ;======================================================================================
 Strlen proc
     ;scasb uses es:di, to we need to copy ds to es
@@ -291,14 +379,14 @@ Strlen proc
         pop  es ; es = ds
 
     ;Preparing registers
-        xor ax, ax          ; ax = 0
         xor cx, cx          ; cx = 0
         dec cx              ; cx = FFFF
 
-        repne scasb         ; searching for 0
+        repne scasb         ; searching for al
 
+        dec di
         neg cx              ; cx = len + 1
-        dec cx              ; cx = len
+        sub cx, 2           ; cx = len
 
     ;Restoring arguments
         pop es
@@ -315,11 +403,10 @@ endp
 ; Args: ds:di - string addr
 ; Ret:  ax - result of conversion
 ;       ds:di - first position after number
-; Destr: ax, di
+; Destr: ax, cx, di
 ;======================================================================================
 AsciiToInt  proc
         xor  ax, ax ; ax = 0
-        push cx     ; storing cx
 
         call SkipSpaces
         xor cx, cx  ; cx = 0
@@ -339,9 +426,10 @@ AsciiToInt  proc
         jmp atoi_loop
     atoi_loop_end:
 
+        dec si      ; last si++ in lodsb is not needed
         xchg di, si
         mov ax, cx  ; result is in ax
-        pop cx      ; restoring cx
+
         ret
 endp
 ;--------------------------------------------------------------------------------------
@@ -354,11 +442,10 @@ endp
 ; Args: ds:di - string addr
 ; Ret:  ax - result of conversion
 ;       ds:di - first position after number
-; Destr: ax, di, si
+; Destr: ax, cx, di
 ;======================================================================================
 AtoiHex  proc
         xor  ax, ax ; ax = 0
-        push cx     ; storing cx
 
         call SkipSpaces
         xor cx, cx  ; cx = 0
@@ -389,7 +476,7 @@ AtoiHex  proc
 
         xchg di, si
         mov ax, cx  ; result is in ax
-        pop cx      ; restoring cx
+
         ret
 endp
 ;--------------------------------------------------------------------------------------
