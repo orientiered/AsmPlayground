@@ -42,10 +42,16 @@
 
     STRING     db 'Lorem ipsum', 0
 
+;-------------------------------------------------------------------------------------
+
 .code
 org 100h
+
 Start:  mov ax, VIDEO_SEG
         mov es, ax          ; es = VIDEO_SEG
+
+        cld                 ; clearing direction flag
+        ; Direction flag is used by many string commands
 
         call ParseCmd       ; parsing cmd args
         ; result is stored according to DrawFrame argument list
@@ -71,7 +77,17 @@ ParseCmd    proc
         mov cx, ds:[di-1]   ; storing length of cmd line
         add cx, 81h         ; ds:cx = end of cmd line
 
+        call SkipSpaces
     ;First arg: length
+    ; It may be * or number
+    ; On * width is calculated automatically
+        cmp byte ptr [di], '*'  ; if ([di] != "*")
+        jne length_from_number  ; assume it is number
+    ; else
+        xor dl, dl              ; dl = 0 signals that width should be calculated later
+        inc di                  ; move str pointer
+        jmp skip_default_length ; skipping stage
+    length_from_number:
         call AsciiToInt
         mov dl, al          ; dl = length    (al)
         cmp ax, 2           ; if (ax <= 2)
@@ -108,10 +124,19 @@ ParseCmd    proc
         mov si, di  ; si(framestyle) = current position
         add di, 9   ; skipping 9 framestyle symbols
     frameStyleEnd:
+
+
         call SkipSpaces
 
         call GetTextStr
         ; cx = length of string
+    ; Checking if width should be calculated from strlen
+        cmp dl, 0   ; if (dl != 0)
+        jne skip_auto_length
+        mov dl, cl
+        add dl, 5  ; dl = strlen + 4 (borders + 1 free space on each side)
+    skip_auto_length:
+
     ;Setting other DrawFrame params
         mov ah, bh       ; ah = text style
     parseCmd_end:
@@ -121,7 +146,7 @@ endp
 ;--------------------------------------------------------------------------------------
 
 ;======================================================================================
-; Extracts string in ' quotes'
+; Extracts string in 'quotes'
 ; Doesn't check if first symbol is quote
 ; Args: ds:di : first quote addr
 ;
@@ -132,10 +157,11 @@ endp
 GetTextStr      proc
 
         inc di      ; moving ptr to first symbol
-        mov al, 39 ; ' terminator
+        mov al, 39  ; ' terminator
         call Strlen
 
         sub di, cx  ; moving di back
+        dec di
         ret
 endp
 ;--------------------------------------------------------------------------------------
@@ -197,7 +223,7 @@ endp
 ;       es :video segment
 ;       dl: frame width
 ;       dh: frame height
-; Ret: si = si + 9, cx = 0, dh = 0
+; Ret: cx = 0, dh = 0
 ; Destr: al, cx, dh, di
 ;======================================================================================
 DrawFrameBorders        proc
@@ -320,12 +346,17 @@ endp
 ; Destr: al, cx, di, si
 ;======================================================================================
 DrawText    proc
+    cmp cx, 0   ;
+    je DrawText_End
+
     textDraw_loop:
         lodsb   ; al = ds:[si++]
         stosw   ; es:[di] = ax, di += 2
         loop textDraw_loop
 
         ret
+
+    DrawText_End:
 endp
 
 ;--------------------------------------------------------------------------------------
@@ -354,6 +385,7 @@ DrawLine proc
     ;Main part of line
         lodsb             ; al = ds:[si++]
         rep stosw         ;loop mov es:[di+=2], ax
+
 
     ;Line end
         lodsb             ; al = ds:[si++]
@@ -384,9 +416,8 @@ Strlen proc
 
         repne scasb         ; searching for al
 
-        dec di
-        neg cx              ; cx = len + 1
-        sub cx, 2           ; cx = len
+        not cx              ; cx = length + 1
+        dec cx              ; cx = length
 
     ;Restoring arguments
         pop es
@@ -471,7 +502,7 @@ AtoiHex  proc
         imul cx, 10h         ; cx *= 16
         add  cx, ax          ; cx += digit
 
-        jmp atoi_loop
+        jmp atoi_hex_loop
     atoi_hex_loop_end:
 
         xchg di, si
@@ -486,7 +517,7 @@ endp
 ; Skips space characters in the string (currently only ' ')
 ; Args: ds:di - string addr
 ; Ret:  di - moved addr to first non-space char
-; Destr: ax, cx, di
+; Destr: al, cx, di
 ;======================================================================================
 SkipSpaces      proc
     ;scasb uses es:di, to we need to copy ds to es
