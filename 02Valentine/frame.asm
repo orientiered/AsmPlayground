@@ -1,9 +1,14 @@
 ; MIPT 2025 ---- Morgachev Dmitri
 ; Draw centered frame with text in it
-; Input: 2 optional arguments
-;       - width  >= 3
-;       - height >= 4
-;       Default: 25*11
+; Input: arguments in command line
+;       - width:  unsigned number (numbers < 3 will be replaced with DFLT_LENGTH[25])
+;             OR '*' -> width will be calculated automatically from length of given str
+;       - height: unsigned number (numbers < 4 will be replaced with DFLT_HEIGHT[11])
+;       - style byte: lowercase hex number
+;       - frame style: number from 1 to 4 (presets)
+;             OR 0 and after it (spaces are skipped) 9 symbols that will be used as frame style
+;       - text: quoted string
+; Example: frame.com * 15 4e 0 *!*_ _*!* "Hello world"
 ;---------------------------------------
 
 .model tiny
@@ -211,9 +216,8 @@ DrawFrame proc
 
         pop dx      ; restoring text len
         pop si      ; restoring text addr
-        call DrawCenteredText
+        jmp DrawCenteredText
 
-        ret
 endp
 ;--------------------------------------------------------------------------------------
 
@@ -250,8 +254,8 @@ DrawFrameBorders        proc
         sub si, 3   ; correcting si (because DrawLine adds 3 to si)
 
         dec dh                  ; height --
-        cmp dh, 0               ; while (dh != 0)
-        jne MIDDLE_LINES_LOOP
+        ;cmp dh, 0               ; while (dh != 0)
+        jnz MIDDLE_LINES_LOOP
 
     ;LAST LINE
 
@@ -346,7 +350,7 @@ endp
 ; Destr: al, cx, di, si
 ;======================================================================================
 DrawText    proc
-    cmp cx, 0   ;
+    test cx, cx   ;cmp cx, 0
     je DrawText_End
 
     textDraw_loop:
@@ -499,7 +503,8 @@ AtoiHex  proc
         add ax, 10            ; compensating subtraction of 'a'
 
     atoi_hex_calc:
-        imul cx, 10h         ; cx *= 16
+        shl  cx, 4       ; cx *= 16
+        ;imul cx, 10h         ; cx *= 16
         add  cx, ax          ; cx += digit
 
         jmp atoi_hex_loop
