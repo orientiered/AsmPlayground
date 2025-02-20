@@ -33,13 +33,14 @@ START:
 ;=========================================================================
 KB_INT proc
         push ax
-        in al, 60h      ; last keyboard scan-code
-        cmp al, F11_CODE
+        in   al, 60h      ; last keyboard scan-code
+        cmp  al, F11_CODE
         pop  ax
-        jne OLD_HANDLER ; if pressed key != F11 continue
+        jne  @@OLD_HANDLER ; if pressed key != F11 continue
 
     ; Saving registers
         pusha
+        ; push ax cx dx bx sp bp si di
         push ds
         push es
 
@@ -49,7 +50,10 @@ KB_INT proc
         pop  ds
         push cs
         pop  es
-        call DrawRegisters
+
+        mov  bp, sp
+        add  bp, (10-1)*2 ; addr of first register
+        call Draw
 
 
     ; Restoring registers
@@ -58,7 +62,7 @@ KB_INT proc
         popa
 
     ; Calling old interrupt handler
-    OLD_HANDLER:
+    @@OLD_HANDLER:
         db 0eah              ; far jump to old interrupt handler
         OLD_KB_INT_OFS dw 0  ; addr
         OLD_KB_INT_SEG dw 0  ; segment
