@@ -38,6 +38,34 @@ KB_INT proc
         pop  ax
         jne  @@OLD_HANDLER ; if pressed key != F11 continue
 
+    ; Inverting DRAW_ACTIVE on F11 press
+        push ax
+        mov  al, cs:DRAW_ACTIVE
+        not  al
+        mov  cs:DRAW_ACTIVE, al
+        pop  ax
+
+    ; Calling old interrupt handler
+    @@OLD_HANDLER:
+        db 0eah              ; far jump to old interrupt handler
+        OLD_KB_INT_OFS dw 0  ; addr
+        OLD_KB_INT_SEG dw 0  ; segment
+        ; iret
+endp
+;--------------------------------------------------------------------------
+
+;=========================================================================
+; Custom timer (08h) interrupt
+; Args  : none
+; Return: none
+; Destr : none
+;=========================================================================
+TM_INT  proc
+    ; Skipping interrupt if it is deactivated
+        cmp cs:DRAW_ACTIVE, 0
+        je @@OLD_HANDLER
+
+
     ; Saving registers
         pusha
         ; push ax cx dx bx sp bp si di
@@ -61,15 +89,16 @@ KB_INT proc
         pop ds
         popa
 
-    ; Calling old interrupt handler
+        ; Calling old interrupt handler
     @@OLD_HANDLER:
         db 0eah              ; far jump to old interrupt handler
-        OLD_KB_INT_OFS dw 0  ; addr
-        OLD_KB_INT_SEG dw 0  ; segment
+        OLD_TM_INT_OFS dw 0  ; addr
+        OLD_TM_INT_SEG dw 0  ; segment
         ; iret
 endp
 ;--------------------------------------------------------------------------
-db DRAW_ACTIVE 0       ; current mode
+
+DRAW_ACTIVE db 0             ; current mode
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
 INCLUDE rframe.asm
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -84,22 +113,34 @@ __EndOfInterrupts__:
 main    proc
         xor ax, ax
         mov es, ax      ; es = 0
-        mov bx, 09h * 4 ; bx = addr(int 09h)
 
-        ; int 09h
 
-    ; Replacing int 09h with new one
-        mov ax, es:[bx]     ; old kb int offset
+        mov bx, 08h * 4 ; bx = addr(int 08h)
+
+    ; int 08h and int 09h
+    ; KB = keyboard, TM = timer
+    ; es:  bx    bx+2    bx+4    bx+6
+    ;    TM_OFS TM_SEG  KB_OFS  TM_OFS
+    ; Replacing ints with new ones
+        mov ax, es:[bx]     ; old tm int offset
+        mov OLD_TM_INT_OFS, ax
+        mov ax, es:[bx+2]   ; old tm int segment
+        mov OLD_TM_INT_SEG, ax
+
+        mov ax, es:[bx+4]   ; old kb int offset
         mov OLD_KB_INT_OFS, ax
-        mov ax, es:[bx+2]   ; old kb int segment
+        mov ax, es:[bx+6]   ; old kb int segment
         mov OLD_KB_INT_SEG, ax
 
         cli                 ; disabling interrupts
 
-        mov word ptr es:[bx], offset KB_INT    ; offset address
+        mov word ptr es:[bx],     offset TM_INT    ; TM offset address
+        mov word ptr es:[bx + 4], offset KB_INT    ; KB offset address
+
         push cs
         pop ax                          ; ax = cs
-        mov es:[bx+2], ax               ; segment address = cs
+        mov word ptr es:[bx + 2], ax             ; TM segment address = cs
+        mov word ptr es:[bx + 6], ax             ; KB segment address = cs
 
         sti                 ; enabling interrupts
 

@@ -11,7 +11,7 @@
     FRAME_TIME = 16000 ; in mcs
 
     FRAME_WIDTH = 11
-    FRAME_HEIGHT = 8
+    FRAME_HEIGHT = 11
     FRAME_X = 80 - FRAME_WIDTH
     FRAME_Y = 0
     FRAME_POS = (FRAME_Y * _WIDTH + FRAME_X) * 2
@@ -50,17 +50,20 @@ endp
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================
 text_to_draw db 0, 0, 0, 0
-reg_count = 6       ;  = number of rows in the table below
+reg_count = 9       ;  = number of rows in the table below
 reg_order:
-; This tables defines order, strings and bx offsets of registers
+; This table defines order, strings and bx offsets of registers
 ; Note: offset is subtracted from bx
 ;    offset string
     db   0,  'ax '
     db   6,  'bx '
     db   2,  'cx '
     db   4,  'dx '
+    db   8,  'sp '
+    db  10,  'bp '
     db  12,  'si '
     db  14,  'di '
+    db  -2,  'ip '
 
 DrawRegisters proc
 
@@ -70,7 +73,7 @@ DrawRegisters proc
         mov  dx, bp
 
         mov  al, byte ptr offset reg_order[bx]
-        xor  ah, ah                             ; ax = al
+        cbw   ; ax = al
         sub  bp, ax
         mov  ax, word ptr ss:[bp]           ; ax = reg value, using stack segment
 
