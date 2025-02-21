@@ -50,8 +50,11 @@ endp
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================
 text_to_draw db 0, 0, 0, 0
-reg_count = 6
+reg_count = 6       ;  = number of rows in the table below
 reg_order:
+; This tables defines order, strings and bx offsets of registers
+; Note: offset is subtracted from bx
+;    offset string
     db   0,  'ax '
     db   6,  'bx '
     db   2,  'cx '
@@ -199,28 +202,6 @@ HexToString proc
         ret
 endp
 ;--------------------------------------------------------------------------------------
-
-;======================================================================================
-; Draws text in center of the screen
-; Args: dl - text length
-;    ds:si - text addr
-;       ah - style attribute
-; Ret: cx = 0
-; Destr: al, cx, dx, si, di
-;======================================================================================
-; DrawCenteredText       proc
-;         mov dh, 1  ; height = 1
-;         call GetCenteredCorner ; di = offset
-;
-;         mov cl, dl ; cl = strlen
-;         xor ch, ch ;
-;         call DrawText
-;
-;         ret
-; endp
-;--------------------------------------------------------------------------------------
-
-
 
 ;======================================================================================
 ; Draw cx chars to video memory
