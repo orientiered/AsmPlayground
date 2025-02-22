@@ -11,6 +11,7 @@ VIDEO_SEG = 0b800h  ; text mode video memory segment
 _WIDTH    = 80
 _HEIGHT   = 25
 F11_CODE  = 57h
+CTRL_CODE = 1dh
 ;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 START:
@@ -31,22 +32,52 @@ START:
 ; Return: none
 ; Destr : none
 ;=========================================================================
+CTRL_PRESSED db 0
+F11_PRESSED  db 0
+DRAW_ACTIVE  db 0             ; current mode
 KB_INT proc
         push ax
         in   al, 60h      ; last keyboard scan-code
+
+        mov  ah, al
+        and  ah, 80h      ; press/release bit
+        shr  ah, 7        ; moving to low bit
+        dec  ah           ; ah = 0 if released, FF if pressed
+
+        and  al, not 80h  ; raw scan-code
+
+
+    ; Checking if ctrl was pressed
+        cmp  al, CTRL_CODE
+        jne  @@CHECK_F11_PRESS
+        mov  byte ptr cs:CTRL_PRESSED, ah
+
+        jmp  @@CHECK_KEYBIND
+
+    @@CHECK_F11_PRESS:
         cmp  al, F11_CODE
-        pop  ax
         jne  @@OLD_HANDLER ; if pressed key != F11 continue
 
-    ; Inverting DRAW_ACTIVE on F11 press
-        push ax
+        mov byte ptr cs:F11_PRESSED,  ah
+
+    @@CHECK_KEYBIND:
+    ; CTRL_PRESSED and F11_PRESSED
+        mov  al, cs:CTRL_PRESSED
+        test al, cs:F11_PRESSED
+        jz   @@OLD_HANDLER
+
+        ; mov  cs:CTRL_PRESSED, 0
+        ; mov  cs:F11_PRESSED,  0
+
+    ; Inverting DRAW_ACTIVE on Ctrl+F11 press
         mov  al, cs:DRAW_ACTIVE
         not  al
         mov  cs:DRAW_ACTIVE, al
-        pop  ax
 
     ; Calling old interrupt handler
     @@OLD_HANDLER:
+        pop ax               ; restoring ax
+
         db 0eah              ; far jump to old interrupt handler
         OLD_KB_INT_OFS dw 0  ; addr
         OLD_KB_INT_SEG dw 0  ; segment
@@ -98,7 +129,6 @@ TM_INT  proc
 endp
 ;--------------------------------------------------------------------------
 
-DRAW_ACTIVE db 0             ; current mode
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
 INCLUDE rframe.asm
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
