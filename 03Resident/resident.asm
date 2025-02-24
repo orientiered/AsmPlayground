@@ -94,10 +94,11 @@ TM_INT  proc
         cmp cs:DRAW_ACTIVE, 0
         je @@OLD_HANDLER
 
-
+        ; stack: flags cs ip
     ; Saving registers
         pusha
         ; push ax cx dx bx sp bp si di
+        push ss
         push ds
         push es
 
@@ -109,13 +110,14 @@ TM_INT  proc
         pop  es
 
         mov  bp, sp
-        add  bp, (10-1)*2 ; addr of first register
+        add  bp, (11-1)*2 ; addr of first register
         call Draw
 
 
     ; Restoring registers
         pop es
         pop ds
+        pop ss
         popa
 
         ; Calling old interrupt handler

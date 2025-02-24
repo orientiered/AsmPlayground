@@ -50,7 +50,6 @@ endp
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================
 text_to_draw db 0, 0, 0, 0
-reg_count = 10       ;  = number of rows in the table below
 reg_order:
 ; This table defines order, strings and bx offsets of registers
 ; Note: offset is subtracted from bx
@@ -59,12 +58,19 @@ reg_order:
     db   6,  'bx '
     db   2,  'cx '
     db   4,  'dx '
+; sp is special, because it is decremented by 6h with interrupt
+reg_sp:
     db   8,  'sp '
     db  10,  'bp '
     db  12,  'si '
     db  14,  'di '
+    db  16,  'ss '
+    db  18,  'ds '
+    db  20,  'es '
     db  -4,  'cs '
     db  -2,  'ip '
+    db  -6,  'fg '
+reg_count = ($ - reg_order) / 4 ;  = number of rows in the table below
 
 DrawRegisters proc
 
@@ -77,6 +83,13 @@ DrawRegisters proc
         cbw   ; ax = al
         sub  bp, ax
         mov  ax, word ptr ss:[bp]           ; ax = reg value, using stack segment
+
+        cmp bx, reg_sp - reg_order          ; if current register is sp
+        jne @@SkipSPCorrection
+
+        add ax, 6h                          ; correcting sp
+    @@SkipSPCorrection:
+
 
         mov  bp, dx
     ; Converting number to string
