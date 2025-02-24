@@ -70,9 +70,7 @@ KB_INT proc
         ; mov  cs:F11_PRESSED,  0
 
     ; Inverting DRAW_ACTIVE on Ctrl+F11 press
-        mov  al, cs:DRAW_ACTIVE
-        not  al
-        mov  cs:DRAW_ACTIVE, al
+        not byte ptr cs:DRAW_ACTIVE
 
     ; Calling old interrupt handler
     @@OLD_HANDLER:

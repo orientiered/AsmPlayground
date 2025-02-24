@@ -7,13 +7,13 @@
                 db  201, 205, 187
                 db  186, ' ', 186
                 db  200, 205, 188
-    STYLE_ATTR = 15h
+    STYLE_ATTR = 4eh
     FRAME_TIME = 16000 ; in mcs
 
     FRAME_WIDTH = 11
-    FRAME_HEIGHT = 11
+    FRAME_HEIGHT = reg_count + 2
     FRAME_X = 80 - FRAME_WIDTH
-    FRAME_Y = 0
+    FRAME_Y = 1
     FRAME_POS = (FRAME_Y * _WIDTH + FRAME_X) * 2
 
 
@@ -50,7 +50,7 @@ endp
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================
 text_to_draw db 0, 0, 0, 0
-reg_count = 9       ;  = number of rows in the table below
+reg_count = 10       ;  = number of rows in the table below
 reg_order:
 ; This table defines order, strings and bx offsets of registers
 ; Note: offset is subtracted from bx
@@ -63,6 +63,7 @@ reg_order:
     db  10,  'bp '
     db  12,  'si '
     db  14,  'di '
+    db  -4,  'cs '
     db  -2,  'ip '
 
 DrawRegisters proc

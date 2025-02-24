@@ -1,11 +1,11 @@
 .model tiny
 
 .data
-EOL 	equ 0dh, 0ah   			; \r\n macro 
+EOL 	equ 0dh, 0ah   			; \r\n macro
 MSG_STR db 'Hello world', EOL, '$'	; Message to output
 
-org 100h
 .code			; PSP shift
+org 100h
 
 START:
 	mov ah, 09h		; DOS Func 09h = puts(dx)
