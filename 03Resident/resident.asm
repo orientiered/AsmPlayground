@@ -71,6 +71,9 @@ KB_INT proc
 
     ; Inverting DRAW_ACTIVE on Ctrl+F11 press
         not byte ptr cs:DRAW_ACTIVE
+        push cx si di es ds
+        call SaveRestoreBackground
+        pop  ds es di si cx
 
     ; Calling old interrupt handler
     @@OLD_HANDLER:
@@ -133,6 +136,74 @@ endp
 INCLUDE rframe.asm
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
 
+;=========================================================================
+; Save background of the frame if DRAW_ACTIVE == 1
+; Restore background to the screen otherwise
+; Args:
+; Ret: none
+; Destr: ax, cx, si, di, es, ds
+;=========================================================================
+BKG_BUFFER dw FRAME_HEIGHT*FRAME_WIDTH dup (0)
+SaveRestoreBackground proc
+    ; Default code copies data from BKG_BUFFER to screen (DRAW_ACTIVE = 0)
+    ; When DRAW_ACTIVE = 0 we swap registers in commands
+        cmp cs:DRAW_ACTIVE, 0
+        jne @@SCREEN_TO_BUFFER
+        mov  word ptr cs:@@SEGM_INIT+1, 1FC0h ; mov es, pop ds
+        mov  word ptr cs:@@REGISTER_INIT, 9090h  ; nop nop
+        mov  byte ptr cs:@@ADD_CMD+1, 0C7h ; add di
+
+        jmp @@COPY_STAGE
+    @@SCREEN_TO_BUFFER:
+        mov  word ptr cs:@@SEGM_INIT+1, 07D8h ; mov ds, pop es
+        mov  word ptr cs:@@REGISTER_INIT, 0FE87h ; xchg di, si
+        mov  byte ptr cs:@@ADD_CMD+1, 0C6h ; add si
+
+
+    ; 03EB				 @@SEGM_INIT:
+    ; 03EB  8E C0			 mov es, ax	   ; es	= VIDEO_SEG
+    ; 03ED  8E D8			 mov ds, ax
+    ; 03EF  1F			     pop  ds	   ; ds	= cs
+    ; 03F0  07			     pop  es
+
+    ; 0405  90			     nop
+    ; 0406  87 FE			 xchg di, si
+
+    ; 041C  81 C7 008A		 add di, (_WIDTH - FRAME_WIDTH)*2
+    ; 0420  81 C6 008A		 add si, (_WIDTH - FRAME_WIDTH)*2
+    @@COPY_STAGE:
+
+        mov  ax, VIDEO_SEG
+        push cs
+    @@SEGM_INIT:
+        mov  es, ax    ; es = VIDEO_SEG
+        pop  ds       ; ds = cs
+
+
+        mov  cx, FRAME_HEIGHT
+        mov  di, FRAME_POS
+        mov  si, offset BKG_BUFFER
+
+    @@REGISTER_INIT:
+        nop
+        nop
+
+    @@row_loop:
+        mov ax, cx          ; saving cx
+
+        mov cx, FRAME_WIDTH
+        rep movsw     ; mov es:[di+=2], ds:[si+=2]
+    @@ADD_CMD:
+        add di, (_WIDTH - FRAME_WIDTH)*2    ;correcting pointer in video memory
+
+        mov cx, ax          ; outer loop counter
+        loop @@row_loop
+
+        ret
+endp
+;--------------------------------------------------------------------------
+
+
 ; This label MUST be after all Interrupts code
 ; All the code after this label will be freed after termination
 __EndOfInterrupts__:
@@ -152,6 +223,7 @@ main    proc
     ; es:  bx    bx+2    bx+4    bx+6
     ;    TM_OFS TM_SEG  KB_OFS  TM_OFS
     ; Replacing ints with new ones
+        cli                 ; disabling interrupts
         mov ax, es:[bx]     ; old tm int offset
         mov OLD_TM_INT_OFS, ax
         mov ax, es:[bx+2]   ; old tm int segment
@@ -162,7 +234,6 @@ main    proc
         mov ax, es:[bx+6]   ; old kb int segment
         mov OLD_KB_INT_SEG, ax
 
-        cli                 ; disabling interrupts
 
         mov word ptr es:[bx],     offset TM_INT    ; TM offset address
         mov word ptr es:[bx + 4], offset KB_INT    ; KB offset address

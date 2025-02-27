@@ -10,6 +10,31 @@
     STYLE_ATTR = 4eh
     FRAME_TIME = 16000 ; in mcs
 
+;----------------------------
+; Draw registers table
+reg_order:
+; This table defines order, strings and bx offsets of registers
+; Note: offset is subtracted from bx
+;    offset string
+    db   0,  'ax '
+    db   6,  'bx '
+    db   2,  'cx '
+    db   4,  'dx '
+; sp is special, because it is decremented by 6h with interrupt
+reg_sp:
+    db   8,  'sp '
+    db  10,  'bp '
+    db  12,  'si '
+    db  14,  'di '
+    db  16,  'ss '
+    db  18,  'ds '
+    db  20,  'es '
+    db  -4,  'cs '
+    db  -2,  'ip '
+    db  -6,  'fg '
+
+    reg_count = ($ - reg_order) / 4 ;  = number of rows in the table below
+;--------------------------
     FRAME_WIDTH = 11
     FRAME_HEIGHT = reg_count + 2
     FRAME_X = 80 - FRAME_WIDTH
@@ -25,6 +50,8 @@ Draw proc
         mov  ax, VIDEO_SEG
         mov  es, ax
         cld
+
+        ; call UpdateFrameBuffer
 
         mov  si, offset FrameStyle
         xor  cx, cx
@@ -50,27 +77,6 @@ endp
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================
 text_to_draw db 0, 0, 0, 0
-reg_order:
-; This table defines order, strings and bx offsets of registers
-; Note: offset is subtracted from bx
-;    offset string
-    db   0,  'ax '
-    db   6,  'bx '
-    db   2,  'cx '
-    db   4,  'dx '
-; sp is special, because it is decremented by 6h with interrupt
-reg_sp:
-    db   8,  'sp '
-    db  10,  'bp '
-    db  12,  'si '
-    db  14,  'di '
-    db  16,  'ss '
-    db  18,  'ds '
-    db  20,  'es '
-    db  -4,  'cs '
-    db  -2,  'ip '
-    db  -6,  'fg '
-reg_count = ($ - reg_order) / 4 ;  = number of rows in the table below
 
 DrawRegisters proc
 
