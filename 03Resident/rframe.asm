@@ -43,7 +43,7 @@ reg_sp:
 
 
 ;======================================================================================
-; Args: ss:bx - addr of first register
+; Args: ss:bp - addr of first register
 ; Destr: all
 ;======================================================================================
 Draw proc
@@ -51,18 +51,64 @@ Draw proc
         mov  es, ax
         cld
 
-        ; call UpdateFrameBuffer
+        mov  di, FRAME_POS
+        mov  si, offset OLD_BKG_BUFFER
+        call UpdateBkgBuffer
 
+
+        mov  di, FRAME_POS
         mov  si, offset FrameStyle
         xor  cx, cx
         mov  ah, STYLE_ATTR
         mov  dl, FRAME_WIDTH
         mov  dh, FRAME_HEIGHT
-        mov  di, FRAME_POS
 
         call DrawFrameBorders
 
         call DrawRegisters
+
+        mov al, 1 ; saving screen
+        mov di, FRAME_POS
+        mov si, offset OLD_BKG_BUFFER
+        call SaveRestoreBackground
+
+        ret
+endp
+;--------------------------------------------------------------------------------------
+
+
+;======================================================================================
+; Compares video memory with previous saved frame in OLD_BKG_BUFFER
+; Updates pixels that do not match in BKG_BUFFER
+; Arg:  es:di - position in video memory
+;       ds:si - old bkg buffer address
+;       Old bkg buffer must be the same size as bkg buffer and placed in memory right after it
+; Ret: none
+; Destr: ax, bx, cx, di, si
+;======================================================================================
+UpdateBkgBuffer proc
+
+        mov cx, FRAME_HEIGHT
+    @@HEIGHT_LOOP:
+        mov bx, cx
+
+        mov cx, FRAME_WIDTH*2
+        @@WIDTH_LOOP:
+
+            cmpsb   ; cmp es:[di++], ds:[si++]
+            je @@SKIP_UPDATE
+
+            mov al, byte ptr es:[di-1]
+            mov byte ptr [si - 1 - FRAME_HEIGHT*FRAME_WIDTH*2], al
+        @@SKIP_UPDATE:
+
+            loop @@WIDTH_LOOP
+
+        add di, (_WIDTH - FRAME_WIDTH)*2
+
+        mov cx, bx
+        loop @@HEIGHT_LOOP
+
         ret
 endp
 ;--------------------------------------------------------------------------------------
@@ -73,6 +119,7 @@ endp
 ; Args:  ss:bp - addr of first register in memory
 ;        order of registers: (ax cx dx bx sp bp si di)
 ;                        bx - 0  2  4  6  8  10 12 14
+;        up-to-date order is stored at the beginning of the file
 ; Ret:
 ; Destr: ax, bx, cx, dx, di, si
 ;======================================================================================

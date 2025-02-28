@@ -72,7 +72,14 @@ KB_INT proc
     ; Inverting DRAW_ACTIVE on Ctrl+F11 press
         not byte ptr cs:DRAW_ACTIVE
         push cx si di es ds
+
+        mov  al, cs:DRAW_ACTIVE
+        mov  di, FRAME_POS
+        mov  si, offset BKG_BUFFER
         call SaveRestoreBackground
+
+
+
         pop  ds es di si cx
 
     ; Calling old interrupt handler
@@ -137,17 +144,22 @@ INCLUDE rframe.asm
 ;~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ;=========================================================================
-; Save background of the frame if DRAW_ACTIVE == 1
+; Save background of the frame if al == 1
 ; Restore background to the screen otherwise
-; Args:
+; Stores only pixels within the frame
+; Args: al - copy direction: 0 -> buffer to screen
+;                            1 -> screen to buffer
+;       di - starting position on screen
+;       si - buffer address
 ; Ret: none
 ; Destr: ax, cx, si, di, es, ds
 ;=========================================================================
-BKG_BUFFER dw FRAME_HEIGHT*FRAME_WIDTH dup (0)
+BKG_BUFFER     dw FRAME_HEIGHT*FRAME_WIDTH dup (0)
+OLD_BKG_BUFFER dw FRAME_HEIGHT*FRAME_WIDTH dup (0)
 SaveRestoreBackground proc
     ; Default code copies data from BKG_BUFFER to screen (DRAW_ACTIVE = 0)
     ; When DRAW_ACTIVE = 0 we swap registers in commands
-        cmp cs:DRAW_ACTIVE, 0
+        cmp al, 0
         jne @@SCREEN_TO_BUFFER
         mov  word ptr cs:@@SEGM_INIT+1, 1FC0h ; mov es, pop ds
         mov  word ptr cs:@@REGISTER_INIT, 9090h  ; nop nop
@@ -181,8 +193,6 @@ SaveRestoreBackground proc
 
 
         mov  cx, FRAME_HEIGHT
-        mov  di, FRAME_POS
-        mov  si, offset BKG_BUFFER
 
     @@REGISTER_INIT:
         nop
