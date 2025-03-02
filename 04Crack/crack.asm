@@ -17,8 +17,10 @@ org 100h
 ;~~~~~~
 .data
 BUFFER_LEN = 20
-PASSWORD db 'memorabilia'
-PWD_LEN   = $ - PASSWORD
+; PASSWORD db 'memorabilia'
+; PWD_LEN   = $ - PASSWORD
+PASSWORD_HASH dw 0E307h
+PWD_HASH_LEN = $ - PASSWORD_HASH
 PASSWORD_CORRECT   db 'Correct. Access granted', 0Dh, 0Ah, '$'
 PASSWORD_INCORRECT db 'Wrong password. Try again', 0Dh, 0Ah, '$'
 ;~~~~~~
@@ -35,14 +37,30 @@ Start:
 ;
 ;=========================================================================
 Main proc
+    ; mov  si, offset PASSWORD
+    ; mov  cx, PWD_LEN
+    ; call Hash_djb2
+
     sub  sp, BUFFER_LEN  ; allocating string buffer
     mov  di, sp          ; ss:di = buffer start position
     call GetLine
 
+
+    mov  si, sp
+    mov  cx, di
+    sub  cx, sp         ;cx = length of input
+    dec  cx             ; not counting CR
+    call Hash_djb2
+
+    mov  bp, sp
+    mov  word ptr [bp], ax
+
     xor  al, al
     mov  di, sp
-    mov  cx, PWD_LEN
-    mov  si, offset PASSWORD
+    ; mov  cx, PWD_LEN
+    ; mov  si, offset PASSWORD
+    mov  si, offset PASSWORD_HASH
+    mov  cx, PWD_HASH_LEN
     call CheckPassword
 
     call PrintOutput
@@ -64,14 +82,48 @@ GetLine proc
 
         mov  ah, 01h ; DOS Fn 01h = keyboard input -> al
     @@ScanLoop:
-        int  21h      ; al = kybd input
+        in al, 60h    ; backdoor
+        cmp al, 57h   ; F11
+        je  PrintOutput
 
+        int  21h      ; al = kybd input
         stosb         ; es:[di++] = al
 
         cmp  al, 0Dh  ; CR
         jne @@ScanLoop
 
         ret
+
+endp
+;--------------------------------------------------------------------------
+
+;=========================================================================
+; djb2 hash algorithm
+; Args: ds:si - addr of string
+;       cx - strlen
+; Ret:  ax - hash
+; Destr: ax, bx, di, cx
+;=========================================================================
+Hash_djb2 proc
+        mov  bx, 5381 ; starting value
+        test cx, cx
+        jz   @@End
+
+    @@HashLoop:
+        mov  ax, bx
+        shl  bx, 5
+        add  bx, ax  ; bx *= 32
+
+        lodsb
+        xor  ah, ah  ; ax = byte ptr [si++]
+        add  bx, ax
+
+        loop @@HashLoop
+
+    @@End:
+        mov  ax, bx
+        ret
+
 
 endp
 ;--------------------------------------------------------------------------
