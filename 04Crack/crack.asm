@@ -2,7 +2,8 @@
 ; FIRST issue:
 ;   1. Write any 20 symbols, then 4 and alt + 1
 ;   2. This will overwrite main return address to call into AccessGranted instruction
-;
+; SECOND issue:
+;   F11 gives access
 ;
 ;
 

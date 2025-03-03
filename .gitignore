@@ -2,3 +2,9 @@
 *.com
 *.lst
 *.map
+
+*.gpr
+*.lock
+*.lock~
+*.rep
+*.exe
