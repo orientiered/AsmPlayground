@@ -7,4 +7,9 @@
 *.lock
 *.lock~
 *.rep
+*.o
 *.exe
+*.cfg
+
+.cache
+.vscode

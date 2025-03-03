@@ -2,22 +2,36 @@ CFLAGS = -D _DEBUG -ggdb3 -std=c++17 -O0 -Wall -Wextra -Weffc++ -Waggressive-loo
 
 CFLAGS_RELEASE = -O3 -DNDEBUG
 
+LINK_LIBS	:= sfml-graphics sfml-window sfml-audio sfml-system
+
 BUILD = DEBUG
 
 ifeq ($(BUILD),RELEASE)
 	override CFLAGS := $(CFLAGS_RELEASE)
 endif
+override CFLAGS := $(CFLAGS) -I./include
+
 #compilier
 ifeq ($(origin CC),default)
 	CC=g++
 endif
 
-patcher.exe: patcher.o
-	$(CC) $(CFLAGS) $^ -o $@
+patcher.exe: build/patcher.o build/sf-textform.o build/triangle-bkg.o build/globals.o
+	$(CC) $(CFLAGS) $^ $(addprefix -l,$(LINK_LIBS)) -o $@
 
-patcher.o: patcher.c
+build/patcher.o: source/patcher.cpp
 	$(CC) $(CFLAGS) -c $< -o$@
+
+build/sf-textform.o: source/sf-textform.cpp
+	$(CC) $(CFLAGS) -c $< -o$@
+
+build/globals.o: source/globals.cpp
+	$(CC) $(CFLAGS) -c $< -o$@
+
+build/triangle-bkg.o: source/triangle-bkg.cpp
+	$(CC) $(CFLAGS) -c $< -o$@
+
 
 .PHONY:clean
 clean:
-	rm patcher.o
+	rm build/*
