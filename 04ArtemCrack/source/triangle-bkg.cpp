@@ -5,13 +5,18 @@
 #include <globals.h>
 #include <triangle-bkg.h>
 
-int TriangleInit(Triangle_t *triangle, sf::RenderWindow *window) {
+int TriangleInit(Triangle_t *triangle      ,
+                 sf::RenderWindow *window  ,
+                 sf::Vector2f baseDirection,    // main direction for triangles movement
+                 sf::Color baseColor            // average color of triangles
+                )
+{
     if (!triangle || !window) {
         return -1;
     }
 
-    const int width = window->getSize().x;
-    const int height = window->getSize().y;
+    const unsigned width = window->getSize().x;
+    const unsigned height = window->getSize().y;
 
     float pos_x = getRandom(0, width),
           pos_y = getRandom(0, height);
@@ -22,13 +27,27 @@ int TriangleInit(Triangle_t *triangle, sf::RenderWindow *window) {
     triangle->shape.setRadius(radius);
     triangle->shape.setOrigin(sf::Vector2f(radius, radius));
     triangle->shape.setRotation(getRandom(0, 2*PI));
-    triangle->shape.setFillColor( sf::Color(128, getRandomInt(0, 55), getRandomInt(0, 55)) );
 
-    triangle->rotateSpeed = getRandom(0, 360 / 15);
-    triangle->vel_x = getRandom(MAX_AXIS_SPEED / 10, MAX_AXIS_SPEED);
-    triangle->vel_y = getRandom(MAX_AXIS_SPEED / 10, MAX_AXIS_SPEED);
+    TriangleSetSpeedColor(triangle, baseDirection, baseColor);
 
     return 0;
+}
+
+int TriangleSetSpeedColor(Triangle_t *triangle,
+                          sf::Vector2f baseDirection,    // main direction for triangles movement
+                          sf::Color baseColor )          // average color of triangles)
+{
+    sf::Color colorOffset(getRandomInt(0, 55), getRandomInt(0, 55), getRandomInt(0, 55) );
+    triangle->shape.setFillColor( baseColor + colorOffset);
+
+    triangle->rotateSpeed = getRandom(0, 360 / 15);
+
+    float maxSpeed = vecLength(baseDirection);
+    triangle->vel_x = baseDirection.x + getRandom(0, maxSpeed / 10);
+    triangle->vel_y = baseDirection.y + getRandom(0, maxSpeed / 10);
+
+    return 0;
+
 }
 
 int TriangleUpdate(Triangle_t *triangle, sf::RenderWindow *window) {
@@ -63,8 +82,8 @@ int TriangleUpdate(Triangle_t *triangle, sf::RenderWindow *window) {
     triangle->shape.move(triangle->vel_x, triangle->vel_y);
 
     // adding some noise
-    triangle->vel_x += getRandom(- MAX_AXIS_SPEED/100, MAX_AXIS_SPEED/100);
-    triangle->vel_y += getRandom(- MAX_AXIS_SPEED/100, MAX_AXIS_SPEED/100);
+    triangle->shape.move( getRandom(- MAX_AXIS_SPEED/10, MAX_AXIS_SPEED/10),
+                          getRandom(- MAX_AXIS_SPEED/10, MAX_AXIS_SPEED/10) );
 
 
     return 0;

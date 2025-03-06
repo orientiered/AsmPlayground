@@ -14,6 +14,11 @@ uint64_t memHash(const void *arr, size_t len);
 
 float getRandom(float lower, float upper);
 int getRandomInt(int lower, int upper);
+
+float vecLength(sf::Vector2f& vec);
+
+sf::Vector2f vecRotate(sf::Vector2f vec, float angle);
+
 sf::Vector2f normalize(sf::Vector2f vec);
 
 

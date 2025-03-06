@@ -16,8 +16,11 @@ ifeq ($(origin CC),default)
 	CC=g++
 endif
 
-patcher.exe: build/patcher.o build/sf-textform.o build/triangle-bkg.o build/globals.o
+patcher.exe: build/main.o build/patcher.o build/sf-textform.o build/triangle-bkg.o build/globals.o
 	$(CC) $(CFLAGS) $^ $(addprefix -l,$(LINK_LIBS)) -o $@
+
+build/main.o: source/main.cpp
+	$(CC) $(CFLAGS) -c $< -o$@
 
 build/patcher.o: source/patcher.cpp
 	$(CC) $(CFLAGS) -c $< -o$@

@@ -1,6 +1,13 @@
 #include <stdio.h>
+#include <wchar.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 #include <math.h>
 
 #include <SFML/Graphics.hpp>
@@ -8,168 +15,147 @@
 #include <globals.h>
 #include <sf-textform.h>
 #include <triangle-bkg.h>
-
-enum EXIT_CODES {
-    NO_FILE_EXIT = 2,
-    OPEN_ERROR_EXIT = 3,
-    ADDR_ERROR_EXIT = 4,
-    WRITE_ERROR_EXIT = 5,
-    CLOSE_ERROR_EXIT = 6,
-    BAD_HASH_EXIT = 7
-};
-
-typedef struct BytePatch {
-    size_t addr;
-    uint8_t replacement;
-} BytePatch_t;
+#include <patcher.h>
 
 
-BytePatch_t PatchTable[] = {
-    {0x1, 0x29}
-};
+typedef struct hashConfig {
+    uint64_t hash_original;
+    uint64_t hash_patched;
+    uint64_t hash_before; // before patching
+    uint64_t hash_after;  // after  patching
+    FILE *file;
+    bool hasConfig;
+} hashConfig_t;
 
-const size_t PatchSize = sizeof(PatchTable) / sizeof(PatchTable[0]);
+typedef struct fileData {
+    uint8_t *data;
+    int64_t length;
+} fileData_t;
 
-const char * const CONFIG_NAME = "patch.cfg";
+static hashConfig_t config;
+static fileData_t   fileData;
+enum EXIT_CODES loadConfig(const char *fileName) {
+    config.hash_original= 0u;
+    config.hash_patched = 0u;
+    config.file = fopen(CONFIG_NAME, "r+");
+    config.hasConfig = true;
 
-int main(int argc, char *argv[]) {
-    sf::Font font;
-    if (!font.loadFromFile("assets/Monomakh-Regular.ttf")) {
-        fprintf(stderr, "! No font found, working in console version\n");
-    }
-
-    FILE *config = fopen(CONFIG_NAME, "r+");
-    uint64_t originalHash = 0u, patchedHash = 0u;
-    bool hasConfig = true;
-    if (!config) {
+    if (!config.file) {
         printf("! No config found, assuming all file choices are correct\n");
-        config = fopen(CONFIG_NAME, "w");
-        hasConfig = false;
+        config.file = fopen(CONFIG_NAME, "w");
+        config.hasConfig = false;
     } else {
-        fscanf(config, "%ju %ju", &originalHash, &patchedHash);
+        fscanf(config.file, "%ju %ju", &config.hash_original, &config.hash_patched);
     }
 
-    if (argc == 1) {
-        fprintf(stderr, "No file selected\n");
-        return NO_FILE_EXIT;
-    }
 
-    const char *fileName = argv[1];
-    FILE *file = fopen(fileName, "rb+");
-    if (!file) {
-        fprintf(stderr, "Failed to open file %s\n", fileName);
+    return SUCCESS_EXIT;
+}
+
+static int64_t getFileSize(const int fd) {
+    struct stat st;
+    int errCode = fstat(fd, &st);
+    return st.st_size;
+}
+
+enum EXIT_CODES loadFile(const wchar_t *fileName) {
+
+    // string in textforms are stored in wchar_t, so conversion is needed
+    const size_t MBS_FILENAME_SIZE = 256;
+    char mbsFileName[MBS_FILENAME_SIZE] = "";
+    wcstombs(mbsFileName, fileName, MBS_FILENAME_SIZE);
+
+    // opeping flie
+    int fileDesc = open(mbsFileName, O_RDWR);
+
+    if (fileDesc == -1)
         return OPEN_ERROR_EXIT;
+
+    // getting length
+    int64_t fileLength = getFileSize(fileDesc);
+
+    // mapping file to virtual memory
+    fileData.data = (uint8_t *) mmap(NULL, fileLength, PROT_WRITE | PROT_READ, MAP_SHARED,
+                                      fileDesc, 0);
+    fileData.length = fileLength;
+
+    // we don't file anymore
+    close(fileDesc);
+    return SUCCESS_EXIT;
+}
+
+enum EXIT_CODES checkHashBeforePatch() {
+    config.hash_before = memHash(fileData.data, fileData.length);
+    printf("! Hash before patching: %#jX\n", config.hash_before);
+
+    if (!config.hasConfig) {
+        fprintf(config.file, "%ju\n", config.hash_before);
+        return SUCCESS_EXIT;
     }
 
-    fseek(file, 0, SEEK_END);
-    long int fileLength = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    uint8_t *fileContents = (uint8_t *) calloc(fileLength, 1);
-    fread(fileContents, fileLength, 1, file);
-    uint64_t fileHash = memHash(fileContents, fileLength);
-    printf("! File hash: %#jX\n", fileHash);
-
-    if (!hasConfig) {
-        fprintf(config, "%ju\n", fileHash);
+    if (config.hash_before == config.hash_original) {
+        printf("! Originality of the file confirmed!\n");
+        return SUCCESS_EXIT;
+    }
+    else if (config.hash_before == config.hash_patched) {
+        printf("! Warning: this program has already been patched\n");
+        return ALREADY_PATCHED_EXIT;
     } else {
-        if (fileHash == originalHash)
-            printf("! Originality of the file confirmed!\n");
-        else if (fileHash == patchedHash)
-            printf("! Warning: this program has already been patched\n");
-        else {
-           fprintf(stderr, "This file is not original. If you want to patch this file, delete %s\n", CONFIG_NAME);
-           fclose(config);
-           fclose(file);
-           free(fileContents);
-           return BAD_HASH_EXIT;
-        }
+        fprintf(stderr, "This file is not original. If you want to patch this file, delete %s\n", CONFIG_NAME);
+        return BAD_HASH_EXIT;
     }
 
+    return SUCCESS_EXIT;
 
-    printf("! Opened %s\n! Starting patching...\n", fileName);
+}
 
-    for (size_t byte_idx = 0; byte_idx < PatchSize; byte_idx++) {
-        size_t addr = PatchTable[byte_idx].addr;
-        if (addr >= fileLength) {
-            fprintf(stderr, "! Error: Invalid address %zu\n", addr);
-            return ADDR_ERROR_EXIT;
-        }
+enum EXIT_CODES checkHashAfterPatch() {
+    config.hash_after = memHash(fileData.data, fileData.length);
+    printf("! Hash after patching: %#jX\n", config.hash_after);
 
-        fileContents[addr] = PatchTable[byte_idx].replacement;
+    if (!config.hasConfig) {
+        fprintf(config.file, "%ju\n", config.hash_after);
+        return SUCCESS_EXIT;
     }
 
-    printf("! Patching complete. Saving changes...\n");
-    uint64_t newHash = memHash(fileContents, fileLength);
-    printf("! Hash after patching: %#jX\n", newHash);
-
-    if (!hasConfig)
-        fprintf(config, "%ju\n", newHash);
-    else if (newHash != patchedHash) {
+    if (config.hash_after == config.hash_patched) {
+        return SUCCESS_EXIT;
+    }
+    else {
         fprintf(stderr, "Something went wrong: hash of patched program doesn't match with reference hash\n");
         return BAD_HASH_EXIT;
     }
 
-    fseek(file, 0, SEEK_SET);
-    fwrite(fileContents, fileLength, 1, file);
-    free(fileContents);
-    if (fclose(file) == EOF) {
-        fprintf(stderr, "Failed to close file %s\n", fileName);
-        return CLOSE_ERROR_EXIT;
+    return SUCCESS_EXIT;
+}
+
+enum EXIT_CODES patchCode(const BytePatch_t *patchTable, size_t patchSize) {
+    for (size_t byte_idx = 0; byte_idx < patchSize; byte_idx++) {
+        size_t addr = patchTable[byte_idx].addr;
+        if (addr >= fileData.length) {
+            fprintf(stderr, "! Error: Invalid address %zu\n", addr);
+            return ADDR_ERROR_EXIT;
+        }
+
+        fileData.data[addr] = patchTable[byte_idx].replacement;
     }
-    if (fclose(config) == EOF) {
+
+    return SUCCESS_EXIT;
+}
+
+enum EXIT_CODES closeFile() {
+    if (munmap(fileData.data, fileData.length) == -1)
+        return CLOSE_ERROR_EXIT;
+
+    return SUCCESS_EXIT;
+}
+
+enum EXIT_CODES closeConfig() {
+    if (fclose(config.file) == EOF) {
         fprintf(stderr, "Failed to close file %s\n", CONFIG_NAME);
         return CLOSE_ERROR_EXIT;
     }
 
-    printf("! Done \n$ Your executable is patched! $\n");
+    return SUCCESS_EXIT;
 
-    sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), WINDOW_TITLE);
-    window.setFramerateLimit(FPS_LIMIT);
-    sf::Text text(L"Взламываю файл", font);
-
-    const int SHAPES_COUNT = 15;
-    Triangle_t triangles[SHAPES_COUNT];
-    for (int i = 0; i < SHAPES_COUNT; i++) {
-        TriangleInit(&triangles[i], &window);
-    }
-    TextForm_t form;
-    textFormCtor(&form, &window, &font, sf::Vector2f(0.5f, 0.8f), sf::Vector2f(0.3f, 0.2f) );
-    textFormSetVisible(&form, 1);
-
-    while (window.isOpen())
-    {
-        sf::Event event;
-        while (window.pollEvent(event))
-        {
-            if (event.type == sf::Event::Closed)
-                window.close();
-            if (event.type == sf::Event::MouseButtonPressed) {
-                textFormClickEventUpdate(&form);
-            }
-
-            if (event.type == sf::Event::KeyPressed) {
-                textFormKeyUpdate(&form, event.key);
-            }
-
-            if (event.type == sf::Event::TextEntered) {
-                textFormUpdate(&form, event.text.unicode);
-
-                for (int i = 0; i < SHAPES_COUNT; i++) {
-                    TriangleInit(&triangles[i], &window);
-                }
-            }
-        }
-
-        window.clear();
-        for (int i = 0; i < SHAPES_COUNT; i++) {
-            TriangleUpdate(&triangles[i], &window);
-            TriangleDraw(&triangles[i], &window);
-        }
-        window.draw(text);
-        textFormDraw(&form);
-        window.display();
-    }
-
-    return 0;
 }

@@ -140,10 +140,14 @@ void textFormKeyUpdate(TextForm_t *form, sf::Event::KeyEvent key) {
         if (key.code == sf::Keyboard::V && key.control) {
             sf::String pastedString = sf::Clipboard::getString();
             const uint32_t *stringData = pastedString.getData();
-            size_t fullStringLen = pastedString.getSize() + 1;
-            memcpy(form->inputStr, stringData, fullStringLen * sizeof(wchar_t));
+            size_t stringLen = pastedString.getSize();
+            // clipboard string may be longer than maximum length
+            stringLen = std::min(stringLen, MAX_INPUT_LEN-1);
+            // copying string
+            memcpy(form->inputStr, stringData, stringLen * sizeof(wchar_t));
+            form->inputSize = stringLen;
+            form->inputStr[stringLen] = L'\0';
 
-            form->inputSize = fullStringLen - 1;
             moveCursorToEnd(form);
             form->label.setString(pastedString);
         }
@@ -211,7 +215,8 @@ void textFormDraw(TextForm_t *form) {
 
     form->window->draw(form->box);
     form->window->draw(form->label);
-    form->window->draw(form->cursor);
+    if (form->isSelected)
+        form->window->draw(form->cursor);
 }
 
 void textFormDtor(TextForm_t *form) {

@@ -1,4 +1,5 @@
 #include <SFML/Graphics.hpp>
+#include <SFML/System/Vector2.hpp>
 #include <globals.h>
 #include <math.h>
 
@@ -23,8 +24,21 @@ uint64_t memHash(const void *arr, size_t len) {
 }
 
 sf::Vector2f normalize(sf::Vector2f vec) {
-    float norm = sqrt(vec.x * vec.x + vec.y * vec.y);
+    float norm = vecLength(vec);
     vec.x /= norm;
     vec.y /= norm;
     return vec;
+}
+
+// return rotated clockwise vector by angle
+sf::Vector2f vecRotate(sf::Vector2f vec, float angle) {
+    // x' = cos(a) * x - sin(a) * y
+    // y' = sin(a) * x + cos(a) * y
+    return sf::Vector2f(vec.x * cos(angle) - vec.y * sin(angle),
+                        vec.x * sin(angle) + vec.y * cos(angle)  );
+}
+
+float vecLength(sf::Vector2f& vec) {
+    return sqrt(vec.x * vec.x + vec.y * vec.y);
+
 }
