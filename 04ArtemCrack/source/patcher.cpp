@@ -1,5 +1,3 @@
-#include <SFML/System/Vector2.hpp>
-#include <SFML/Window/Event.hpp>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -150,8 +148,13 @@ int main(int argc, char *argv[]) {
                 textFormClickEventUpdate(&form);
             }
 
+            if (event.type == sf::Event::KeyPressed) {
+                textFormKeyUpdate(&form, event.key);
+            }
+
             if (event.type == sf::Event::TextEntered) {
-                textFormUpdate(&form, event.key.code);
+                textFormUpdate(&form, event.text.unicode);
+
                 for (int i = 0; i < SHAPES_COUNT; i++) {
                     TriangleInit(&triangles[i], &window);
                 }
