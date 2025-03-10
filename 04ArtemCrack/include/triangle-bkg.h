@@ -19,6 +19,8 @@ int TriangleSetSpeedColor(Triangle_t *triangle,
                           sf::Vector2f baseDirection,    // main direction for triangles movement
                           sf::Color baseColor );         // average color of triangles)
 
+int TriangleReverseSpeed(Triangle_t *triangle, size_t count);
+
 int TriangleUpdate(Triangle_t *triangle, sf::RenderWindow *window);
 int TriangleDraw(Triangle_t *triangle, sf::RenderWindow *window);
 

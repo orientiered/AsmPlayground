@@ -50,6 +50,18 @@ int TriangleSetSpeedColor(Triangle_t *triangle,
 
 }
 
+int TriangleReverseSpeed(Triangle_t *triangle, size_t count) {
+    if (!triangle)
+        return -1;
+
+    for (size_t idx = 0; idx < count; idx++) {
+        triangle[idx].vel_x = -triangle[idx].vel_x;
+        triangle[idx].vel_y = -triangle[idx].vel_y;
+    }
+
+    return 0;
+}
+
 int TriangleUpdate(Triangle_t *triangle, sf::RenderWindow *window) {
     if (!triangle)
         return -1;

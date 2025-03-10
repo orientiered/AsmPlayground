@@ -1,3 +1,4 @@
+#include <SFML/Graphics/Text.hpp>
 #include <SFML/Window/Keyboard.hpp>
 #include <stdio.h>
 #include <wchar.h>
@@ -18,6 +19,8 @@
 #include <triangle-bkg.h>
 #include <patcher.h>
 
+void handleFilePatch(TextForm_t *form, sf::Text& text);
+
 int main() {
     sf::Font font;
     if (!font.loadFromFile("assets/Tektur.ttf")) {
@@ -34,7 +37,10 @@ int main() {
 
     sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), WINDOW_TITLE);
     window.setFramerateLimit(FPS_LIMIT);
-    sf::Text text(L"Взламываю файл", font);
+    sf::Text text(L"Введите имя файла", font);
+    text.setFillColor(sf::Color::White);
+    text.setCharacterSize(75);
+    text.setPosition(sf::Vector2f(WINDOW_WIDTH * 0.05f, WINDOW_HEIGHT * 0.7f));
 
     const int SHAPES_COUNT = 15;
     Triangle_t triangles[SHAPES_COUNT];
@@ -44,8 +50,10 @@ int main() {
         TriangleInit(&triangles[i], &window, baseDirection, baseColor );
     }
     TextForm_t form;
-    textFormCtor(&form, &window, &font, sf::Vector2f(0.5f, 0.8f), sf::Vector2f(0.3f, 0.2f) );
+    textFormCtor(&form, &window, &font, sf::Vector2f(0.5f, 0.9f), sf::Vector2f(0.95f, 0.15f) );
     textFormSetVisible(&form, 1);
+
+    // system("vlc assets/keygen_fm.ogg.m3u");
 
     while (window.isOpen())
     {
@@ -60,27 +68,11 @@ int main() {
 
             if (event.type == sf::Event::KeyPressed) {
                 textFormKeyUpdate(&form, event.key);
+                // try to patch file with fiven name
                 if (event.key.code == sf::Keyboard::Enter) {
-                    const wchar_t *fileName = textFormGetText(&form);
-                    if (loadFile(fileName) != SUCCESS_EXIT) {
-                        text.setString(L"Не могу открыть файл");
-                    } else {
-                        enum EXIT_CODES code = checkHashBeforePatch();
-                        if (code == ALREADY_PATCHED_EXIT) {
-                            text.setString(L"Файл уже пропатчен");
-                            closeFile();
-                        }
-                        else if (code == BAD_HASH_EXIT) {
-                            text.setString(L"Таблетка не предназначена для этого файла");
-                            closeFile();
-                        } else {
-
-                            patchCode(PatchTable, PatchSize);
-                            checkHashAfterPatch();
-                            closeFile();
-                            text.setString(L"Всё готово. Йоу");
-                        }
-                    }
+                    handleFilePatch(&form, text);
+                    // TriangleReverseSpeed(triangles, SHAPES_COUNT);
+                    baseDirection = -baseDirection;
                 }
             }
 
@@ -89,7 +81,9 @@ int main() {
 
                 for (int i = 0; i < SHAPES_COUNT; i++) {
                     baseDirection = vecRotate(baseDirection, PI / 180);
-                    baseColor += sf::Color(10, 10, 10);
+                    baseColor.r += 15;
+                    baseColor.g += 10;
+                    baseColor.b += 5;
                     TriangleSetSpeedColor(&triangles[i], baseDirection, baseColor );
                 }
             }
@@ -100,8 +94,9 @@ int main() {
             TriangleUpdate(&triangles[i], &window);
             TriangleDraw(&triangles[i], &window);
         }
-        window.draw(text);
         textFormDraw(&form);
+        window.draw(text);
+
         window.display();
     }
 
@@ -109,4 +104,31 @@ int main() {
     closeConfig();
 
     return 0;
+}
+
+void handleFilePatch(TextForm_t *form, sf::Text& text) {
+    const wchar_t *fileName = textFormGetText(form);
+    if (loadFile(fileName) != SUCCESS_EXIT) {
+        text.setFillColor(sf::Color::Red);
+        text.setString(L"Не могу открыть файл");
+    } else {
+        enum EXIT_CODES code = checkHashBeforePatch();
+        if (code == ALREADY_PATCHED_EXIT) {
+            text.setFillColor(sf::Color::Cyan);
+            text.setString(L"Файл уже пропатчен");
+            closeFile();
+        }
+        else if (code == BAD_HASH_EXIT) {
+            text.setFillColor(sf::Color::Red);
+            text.setString(L"Таблетка не предназначена для этого файла");
+            closeFile();
+        } else {
+
+            patchCode(PatchTable, PatchSize);
+            checkHashAfterPatch();
+            closeFile();
+            text.setFillColor(sf::Color::Green);
+            text.setString(L"Всё готово. Йоу");
+        }
+    }
 }

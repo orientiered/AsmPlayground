@@ -27,7 +27,9 @@ typedef struct BytePatch {
 
 
 const BytePatch_t PatchTable[] = {
-    {0x1, 0x29}
+    {0xc3, 0x00},   // new right passowrd hash
+    {0xc4, 0x00},   // new right passowrd hash
+    {0x93, 0xc3}    // ret in strhash
 };
 
 const char * const CONFIG_NAME = "patch.cfg";
