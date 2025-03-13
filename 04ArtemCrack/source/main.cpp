@@ -1,3 +1,4 @@
+#include <SFML/Audio/SoundStream.hpp>
 #include <SFML/Graphics/Text.hpp>
 #include <SFML/Window/Keyboard.hpp>
 #include <stdio.h>
@@ -25,6 +26,9 @@ void handleFilePatch(TextForm_t *form, sf::Text& text);
 
 int main() {
     sf::Font font;
+    sf::SoundBuffer keyboardSoundBuffer;
+    keyboardSoundBuffer.loadFromFile("assets/keyboard_sound.ogg");
+    sf::Sound keyboardSound(keyboardSound);
     if (!font.loadFromFile("assets/Tektur.ttf")) {
         fprintf(stderr, "! No font found :(\n");
         return 1;
@@ -34,9 +38,13 @@ int main() {
 
     // printf("! Opened %s\n! Starting patching...\n", fileName);
 
-    startRadio(keygen_FM);
+    NetworkOggAudio radio;
+    radio.open(keygen_FM);
+    radio.play();
     // printf("! Done \n$ Your executable is patched! $\n");
-
+    radio.setVolume(100.f);
+    printf("volume = %f\n", radio.getVolume());
+    printf("is playing = %d\n", radio.getStatus() == sf::SoundStream::Playing);
 
     sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), WINDOW_TITLE);
     window.setFramerateLimit(FPS_LIMIT);
@@ -83,7 +91,7 @@ int main() {
 
             if (event.type == sf::Event::TextEntered) {
                 textFormUpdate(&form, event.text.unicode);
-
+                keyboardSound.play();
                 for (int i = 0; i < SHAPES_COUNT; i++) {
                     baseDirection = vecRotate(baseDirection, PI / 180);
                     baseColor.r += 15;
@@ -107,7 +115,6 @@ int main() {
 
 
     closeConfig();
-    closeRadio();
     return 0;
 }
 

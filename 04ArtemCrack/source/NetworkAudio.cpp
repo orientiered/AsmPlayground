@@ -1,125 +1,242 @@
+#include <SFML/Audio/SoundStream.hpp>
 #include <SFML/System/InputStream.hpp>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <thread>
-#include <mutex>
 #include <curl/curl.h>
 #include <SFML/Audio.hpp>
 
 #include <NetworkAudio.h>
 
-#define STB_VORBIS_HEADER_ONLY
 #include "stb_vorbis.c"
 
-typedef struct memory {
-    uint8_t *data;
-    size_t   size;
-    size_t   reserved;
-    uint8_t *playBuffer;
-    size_t   playBufferSize;
-    int64_t   playBufferPtr;
-    int64_t  realPosition;
-    size_t   playBufferReserved;
-} memory_t;
 
-void swapBuffers(memory_t *mem);
-void clearDataBuffer(memory_t *mem);
+void waitForSync();
+void waitForLoadStop();
+
+void swapBuffers();
+
+size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp);
+
 void fetchAudio();
 
 
-/*move it to structure or class*/
-CURL *curl = NULL;
-memory_t data = {0};
-// sf::SoundBuffer audioChunk;
-// sf::Sound       player;
-sf::Music       player;
 
-std::thread     loadThread;
-std::mutex      mtx;
-bool stopLoading = false;
-bool fetching    = false;
+
+std::thread loadThread;
+bool stopLoading   = false;
+bool isFetching    = false;
+CURL *curl         = NULL;
 stb_vorbis *vorbis = NULL;
-/*------------------------------*/
 
-class NetworkStream : public sf::InputStream {
-public:
-    sf::Int64 read(void *dest, sf::Int64 size) override {
-        printf("Read call to %X of %jd bytes\n", dest, size);
+int channels = 0;
+size_t unusedSamples = 0;
+loadBuffer_t loadBuffer = {0};
+readBuffer_t readBuffer = {0};
+// buffer to construct blocks of data for vorbis decoder
+decodeBuffer_t decodeBuffer = {0};
+typedef struct chunkBuffer_t {
+    short data[MAX_SAMPLES];
+    size_t ptr;
+} chunkBuffer_t;
+chunkBuffer_t chunkBuffer = {0};
 
-        if (data.playBufferPtr + size < data.playBufferSize ) {
-            memcpy(dest, data.playBuffer + data.playBufferPtr, size);
-            data.playBufferPtr += size;
-            data.realPosition  += size;
-            return size;
-        }
-
-        int64_t availableBytes = data.playBufferSize - data.playBufferPtr;
-
-        if (availableBytes > 0) {
-            memcpy(dest, data.playBuffer + data.playBufferPtr, availableBytes);
-            size -= availableBytes;
-            data.realPosition += availableBytes;
-            dest = (uint8_t*) dest + availableBytes;
-        }
-
-        while (data.size < size || data.size < MINIMUM_BUFFER_SIZE) {
-            //waiting while data is fetching
-        }
-        stopLoading = true;
-        while (fetching) {
-            // waiting to stop loadThread
-        }
-        swapBuffers(&data);
-        clearDataBuffer(&data);
-        // unlocking thread
-        stopLoading = false;
-
-        //copying left bytes
-        memcpy(dest, data.playBuffer, size);
-        data.playBufferPtr = size;
-        data.realPosition += size;
-        return size;
-
+bool NetworkOggAudio::open(const char *url_link) {
+    // Setting up curl
+    curl = curl_easy_init();
+    if (!curl)  {
+        fprintf(stderr, "Failed to initialize curl\n");
+        return false;
     }
 
-    sf::Int64 seek(sf::Int64 position) override {
-        printf("seek request to %jd\n", position);
+    curl_easy_setopt(curl, CURLOPT_URL, url_link);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &loadBuffer);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
-        if (position < 0)
-            return data.realPosition;
-        // it is possible to seek only in playBuffer
-        if (data.realPosition - position > data.playBufferPtr)
-            return data.realPosition;
-        if (position - data.realPosition > (int64_t) (data.playBufferSize - data.playBufferPtr) )
-            return data.realPosition;
+    // starting data fetching
+    loadThread = std::thread(fetchAudio);
+    loadThread.detach();
 
-        data.playBufferPtr += position - data.realPosition;
-        data.realPosition = position;
-        return position;
+    // getting first pacakge of data
+    swapBuffers();
+    // initializing vorbis
+    int bytesConsumed = 0;
+    int vorbis_error = 0;
+    vorbis = stb_vorbis_open_pushdata(readBuffer.data, readBuffer.size, &bytesConsumed, &vorbis_error, NULL);
+    readBuffer.readPtr += bytesConsumed;
+    if (vorbis_error)
+        printf("Error on vorbis init\n");
 
-        // Нет поддержки перемотки для сетевого потока
-        return -1;
+    printf("Vorbis used %d bytes on init\n", bytesConsumed);
+    if (!vorbis) {
+        printf("Vorbis failed to initiliaze\n");
+        return false;
     }
 
-    sf::Int64 tell() override {
-        printf("Tell request: %jd\n", data.realPosition);
-        return data.realPosition; // Не поддерживается
+    stb_vorbis_info audio_info = stb_vorbis_get_info(vorbis);
+    printf("Channels = %d, sample_rate = %u\n", audio_info.channels, audio_info.sample_rate);
+    channels = audio_info.channels;
+    initialize(audio_info.channels, audio_info.sample_rate);
+
+    decodeBuffer.ptr = TEMP_BUFFER_SIZE; // ptr points to first byte that is not used
+
+    printf("Radio started\n");
+    return true;
+}
+
+NetworkOggAudio::~NetworkOggAudio() {
+    NetworkOggAudio::stop();
+    stopLoading = true;
+    if (loadThread.joinable())
+        loadThread.join();
+
+    curl_easy_cleanup(curl);
+    free(loadBuffer.data);
+    free(readBuffer.data);
+    printf("Radio deinitialized\n");
+}
+
+//moves data in decodeBuffer to the start of buffer
+int moveDecodeBuffer() {
+    int move = decodeBuffer.ptr;
+    decodeBuffer.ptr = 0;
+
+    if (move == 0 || move == TEMP_BUFFER_SIZE) return move;
+
+    for (size_t idx = 0; idx < TEMP_BUFFER_SIZE - move; idx++)
+        decodeBuffer.data[idx] = decodeBuffer.data[idx + move];
+
+    return move;
+}
+
+void refillDecodeBuffer() {
+    size_t readAvailableBytes = readBuffer.size - (size_t) (readBuffer.readPtr - readBuffer.data);
+    // data is given to vorbis in packages of TEMP_BUFFER_SIZE  size
+
+    size_t bytesToLoad = decodeBuffer.ptr;
+    moveDecodeBuffer();
+
+    size_t writeOffset = TEMP_BUFFER_SIZE - bytesToLoad;
+    if (readAvailableBytes < bytesToLoad) {
+        memcpy(decodeBuffer.data + writeOffset, readBuffer.readPtr, readAvailableBytes);
+        writeOffset += readAvailableBytes;
+        swapBuffers();
+        bytesToLoad -= readAvailableBytes;
+        memcpy(decodeBuffer.data + writeOffset, readBuffer.readPtr, bytesToLoad);
+        readBuffer.readPtr += bytesToLoad;
+    } else {
+        memcpy(decodeBuffer.data + writeOffset, readBuffer.readPtr, bytesToLoad);
+        readBuffer.readPtr += bytesToLoad;
     }
 
-    sf::Int64 getSize() override {
-        printf("getSize request\n");
-        return -1; // Неизвестен заранее
+
+}
+
+int getSamples() {
+    int     samplesCount = 0;
+    float **output = NULL;
+
+    while (samplesCount == 0) {
+        refillDecodeBuffer();
+
+        int bytes_read = stb_vorbis_decode_frame_pushdata(vorbis,
+                                                        decodeBuffer.data,
+                                                        TEMP_BUFFER_SIZE,
+                                                        NULL,
+                                                        &output,
+                                                        &samplesCount);
+
+        int verror = stb_vorbis_get_error(vorbis);
+        if (verror) {
+            printf("Vorbis error %d\n", verror);
+            return 0;
+        }
+        decodeBuffer.ptr += bytes_read;
+
+        printf("Vorbis read %d bytes and created %d samples\n", bytes_read, samplesCount);
+
+        if (bytes_read == 0)
+            decodeBuffer.ptr = TEMP_BUFFER_SIZE; // forcing to fill buffer with new data
     }
-private:
 
-};
+    return samplesCount;
+}
 
-NetworkStream netStream = {};
+bool NetworkOggAudio::onGetData(Chunk& data) {
+    printf("Data request:\n\n");
 
+    data.sampleCount = MAX_SAMPLES;
+    chunkBuffer.ptr = 0;
+    while (chunkBuffer.ptr < MAX_SAMPLES) {
+        if (unusedSamples == 0) {
+            unusedSamples = getSamples();
+            if (unusedSamples == 0) {
+                printf("Data request failed\n");
+                return false;
+
+            }
+        }
+
+        size_t samplesToGet = std::min(unusedSamples, MAX_SAMPLES-chunkBuffer.ptr);
+        stb_vorbis_get_samples_short_interleaved(vorbis, channels,
+                                chunkBuffer.data + chunkBuffer.ptr,
+                                samplesToGet);
+
+        unusedSamples -= samplesToGet;
+        chunkBuffer.ptr += samplesToGet;
+
+    }
+    data.samples = chunkBuffer.data;
+    printf("Returned %d samples\n", data.sampleCount);
+
+    return true;
+
+}
+
+void NetworkOggAudio::onSeek(sf::Time timeOffset) {
+    printf("Seek is not supported for network audio\n");
+    return;
+}
+
+void waitForSync() {
+    if (stopLoading)
+        isFetching = false;
+
+    while (stopLoading) ;
+
+    isFetching = true;
+}
+
+void waitForLoadStop() {
+
+    while (isFetching) ;
+}
+
+void swapBuffers() {
+    // waiting for enough data to load
+    while (loadBuffer.size < MINIMUM_BUFFER_SIZE) ;
+
+    stopLoading = true;
+    waitForLoadStop();
+
+    std::swap(loadBuffer.data, readBuffer.data);
+    std::swap(loadBuffer.size, readBuffer.size);
+    std::swap(loadBuffer.reserved, readBuffer.reserved);
+    readBuffer.readPtr = readBuffer.data;
+    loadBuffer.size    = 0;
+
+    printf("Read buffer updated, %lu bytes available\n", readBuffer.size);
+    stopLoading = false;
+}
+
+// curl write callback function
 size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
+    waitForSync();
+
     size_t realsize = size * nmemb;
-    memory_t *mem = (memory_t *)clientp;
+    loadBuffer_t *mem = (loadBuffer_t *)clientp;
 
     uint8_t *ptr = mem->data;
     if (mem->size + realsize + 1 > mem->reserved) {
@@ -136,74 +253,11 @@ size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
     mem->data[mem->size] = 0;
 
     printf("Fetched %ju bytes\n", realsize);
-    if (mem->size < MINIMUM_BUFFER_SIZE)
-        return realsize;
-
-    if (stopLoading)
-        fetching = false;
-    while (stopLoading) {
-        // waiting
-    }
-
-    fetching = true;
 
     return realsize;
 }
 
-int startRadio(const char *link) {
-    // if (!link)
-        // link = keygen_FM;
-    curl = curl_easy_init();
-    if (!curl) return -1;
-
-    curl
-
-    curl_easy_setopt(curl, CURLOPT_URL, link);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    loadThread = std::thread(fetchAudio);
-    loadThread.detach();
-    // audioChunk.loadFromStream(netStream);
-    // player.setBuffer(audioChunk);
-    player.openFromStream(netStream);
-    player.play();
-
-    printf("Started radio\n");
-    return 0;
-}
-
-void swapBuffers(memory_t *mem) {
-    uint8_t *tempPtr = mem->data;
-    mem->data = mem->playBuffer;
-    mem->playBuffer = tempPtr;
-
-    size_t tempSize = mem->size;
-    mem->size = mem->playBufferSize;
-    mem->playBufferSize = tempSize;
-
-    tempSize = mem->reserved;
-    mem->reserved = mem->playBufferReserved;
-    mem->playBufferReserved = tempSize;
-
-    printf("Swapped buffers\n");
-    printf("Available: %jd bytes\n", mem->playBufferSize);
-}
-
-void clearDataBuffer(memory_t *mem) {
-    mem->size = 0;
-}
-
+//this function must be performed async
 void fetchAudio() {
     curl_easy_perform(curl);
-}
-
-int closeRadio() {
-    player.stop();
-    stopLoading = true;
-    curl_easy_cleanup(curl);
-    free(data.data);
-    free(data.playBuffer);
-    return 0;
 }
