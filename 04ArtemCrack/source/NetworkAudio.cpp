@@ -146,6 +146,8 @@ float **getSamples(size_t *sampleCount) {
     int     samplesCount = 0;
     float **output = NULL;
 
+    static int unsuccessfulDecodeAttempts = 0;
+    const int MAX_BAD_DECODE_ATTEMPTS = 20;
     while (samplesCount == 0) {
         refillDecodeBuffer();
 
@@ -164,9 +166,16 @@ float **getSamples(size_t *sampleCount) {
         decodeBuffer.ptr += bytes_read;
 
         printf("Vorbis read %d bytes and created %d samples\n", bytes_read, samplesCount);
-
+        if (samplesCount == 0)
+            unsuccessfulDecodeAttempts++;
         if (bytes_read == 0)
             decodeBuffer.ptr = TEMP_BUFFER_SIZE; // forcing to fill buffer with new data
+        
+        // if we get 0 samples too many time, flush data 
+        if (unsuccessfulDecodeAttempts > MAX_BAD_DECODE_ATTEMPTS) {
+            stb_vorbis_flush_pushdata(vorbis);
+            unsuccessfulDecodeAttempts = 0;
+        }
     }
 
     *sampleCount = samplesCount;
@@ -281,3 +290,4 @@ size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
 void fetchAudio() {
     curl_easy_perform(curl);
 }
+
