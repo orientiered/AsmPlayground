@@ -27,8 +27,13 @@ void handleFilePatch(TextForm_t *form, sf::Text& text);
 int main() {
     sf::Font font;
     sf::SoundBuffer keyboardSoundBuffer;
-    keyboardSoundBuffer.loadFromFile("assets/keyboard_sound.ogg");
-    sf::Sound keyboardSound(keyboardSound);
+    if (!keyboardSoundBuffer.loadFromFile("assets/keyboard_sound.ogg") ) {
+        printf("Sound has not been loaded\n");
+    }
+    sf::Sound keyboardSound;
+    keyboardSound.setBuffer(keyboardSoundBuffer);
+
+
     if (!font.loadFromFile("assets/Tektur.ttf")) {
         fprintf(stderr, "! No font found :(\n");
         return 1;
@@ -41,7 +46,6 @@ int main() {
     NetworkOggAudio radio;
     radio.open(keygen_FM);
     radio.play();
-    // printf("! Done \n$ Your executable is patched! $\n");
     radio.setVolume(100.f);
     printf("volume = %f\n", radio.getVolume());
     printf("is playing = %d\n", radio.getStatus() == sf::SoundStream::Playing);

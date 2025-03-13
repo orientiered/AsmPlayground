@@ -2,7 +2,7 @@ CFLAGS = -D _DEBUG -ggdb3 -std=c++17 -O0 -Wall -Wextra -Weffc++ -Waggressive-loo
 
 CFLAGS_RELEASE = -O3 -DNDEBUG
 
-LINK_LIBS	:= sfml-graphics sfml-window sfml-audio sfml-system curl
+LINK_LIBS	:= sfml-graphics sfml-window sfml-system sfml-audio curl 
 
 BUILD = DEBUG
 
@@ -16,7 +16,7 @@ ifeq ($(origin CC),default)
 	CC=g++
 endif
 
-patcher.exe: build/main.o build/patcher.o build/sf-textform.o build/triangle-bkg.o build/globals.o build/NetworkAudio.o
+patcher.exe: build/main.o build/patcher.o build/sf-textform.o build/triangle-bkg.o build/globals.o build/NetworkAudio.o build/stb_vorbis.o
 	$(CC) $(CFLAGS) $^ $(addprefix -l,$(LINK_LIBS)) -o $@
 
 build/main.o: source/main.cpp
@@ -37,6 +37,8 @@ build/triangle-bkg.o: source/triangle-bkg.cpp
 build/NetworkAudio.o: source/NetworkAudio.cpp
 	$(CC) $(CFLAGS) -c $< -o$@
 
+build/stb_vorbis.o: source/stb_vorbis.c
+	$(CC) $(CFLAGS) -c $< -o$@
 
 .PHONY:clean
 clean:

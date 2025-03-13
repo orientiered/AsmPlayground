@@ -9,6 +9,7 @@
 
 #include <NetworkAudio.h>
 
+#define STB_VORBIS_HEADER_ONLY
 #include "stb_vorbis.c"
 
 
@@ -23,6 +24,8 @@ void fetchAudio();
 
 
 
+/*Yes, these are global variables*/
+/*They were initially hidden in class fields, but I got errors trying to access them within a separate thread */
 
 std::thread loadThread;
 bool stopLoading   = false;
@@ -32,6 +35,8 @@ stb_vorbis *vorbis = NULL;
 
 int channels = 0;
 size_t unusedSamples = 0;
+float **floatSamples = NULL;
+size_t  floatSamplesPos = 0;
 loadBuffer_t loadBuffer = {0};
 readBuffer_t readBuffer = {0};
 // buffer to construct blocks of data for vorbis decoder
@@ -78,7 +83,9 @@ bool NetworkOggAudio::open(const char *url_link) {
     stb_vorbis_info audio_info = stb_vorbis_get_info(vorbis);
     printf("Channels = %d, sample_rate = %u\n", audio_info.channels, audio_info.sample_rate);
     channels = audio_info.channels;
-    initialize(audio_info.channels, audio_info.sample_rate);
+    // forcing to use 1 channels
+    initialize(1, audio_info.sample_rate);
+    // initialize(audio_info.channels, audio_info.sample_rate);
 
     decodeBuffer.ptr = TEMP_BUFFER_SIZE; // ptr points to first byte that is not used
 
@@ -95,6 +102,7 @@ NetworkOggAudio::~NetworkOggAudio() {
     curl_easy_cleanup(curl);
     free(loadBuffer.data);
     free(readBuffer.data);
+    stb_vorbis_close(vorbis);
     printf("Radio deinitialized\n");
 }
 
@@ -134,7 +142,7 @@ void refillDecodeBuffer() {
 
 }
 
-int getSamples() {
+float **getSamples(size_t *sampleCount) {
     int     samplesCount = 0;
     float **output = NULL;
 
@@ -161,8 +169,16 @@ int getSamples() {
             decodeBuffer.ptr = TEMP_BUFFER_SIZE; // forcing to fill buffer with new data
     }
 
-    return samplesCount;
+    *sampleCount = samplesCount;
+    return output;
 }
+
+void convertFloatAudioToSamples(short *dest, float *src, size_t size) {
+    for (size_t idx = 0; idx < size; idx++) {
+        dest[idx] = (signed short) ( src[size] * (32768) );
+    }
+}
+
 
 bool NetworkOggAudio::onGetData(Chunk& data) {
     printf("Data request:\n\n");
@@ -171,7 +187,8 @@ bool NetworkOggAudio::onGetData(Chunk& data) {
     chunkBuffer.ptr = 0;
     while (chunkBuffer.ptr < MAX_SAMPLES) {
         if (unusedSamples == 0) {
-            unusedSamples = getSamples();
+            floatSamples = getSamples(&unusedSamples);
+            floatSamplesPos = 0;
             if (unusedSamples == 0) {
                 printf("Data request failed\n");
                 return false;
@@ -180,12 +197,15 @@ bool NetworkOggAudio::onGetData(Chunk& data) {
         }
 
         size_t samplesToGet = std::min(unusedSamples, MAX_SAMPLES-chunkBuffer.ptr);
-        stb_vorbis_get_samples_short_interleaved(vorbis, channels,
-                                chunkBuffer.data + chunkBuffer.ptr,
-                                samplesToGet);
+        // convertFloatAudioToSamples(chunkBuffer.data + chunkBuffer.ptr, floatSamples[0], samplesToGet);
+        convert_channels_short_interleaved(1, chunkBuffer.data + chunkBuffer.ptr, 1, floatSamples, floatSamplesPos, samplesToGet);
+        // int samplesGet = stb_vorbis_get_samples_short_interleaved(vorbis, channels,
+                                // chunkBuffer.data + chunkBuffer.ptr,
+                                // samplesToGet);
 
         unusedSamples -= samplesToGet;
         chunkBuffer.ptr += samplesToGet;
+        floatSamplesPos += samplesToGet;
 
     }
     data.samples = chunkBuffer.data;
