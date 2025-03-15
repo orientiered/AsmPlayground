@@ -13,39 +13,47 @@
 #include "stb_vorbis.c"
 
 
-void waitForSync();
-void waitForLoadStop();
+/// @brief Wait while isLoading == false
+/// @brief Signals to other threads by isFetching = false while waits
+static void waitForSync();
 
-void swapBuffers();
+/// @brief Make isLoading = false and wait for load thread to stop fetching
+static void stopLoading();
 
-size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp);
+/// @brief Make isLoading = true
+static void resumeLoading();
 
-void fetchAudio();
+/// @brief Swaps loadBuffer and readBuffer
+static void swapBuffers();
+
+static size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp);
+
+static void fetchAudio();
 
 
 
 /*Yes, these are global variables*/
 /*They were initially hidden in class fields, but I got errors trying to access them within a separate thread */
 
-std::thread loadThread;
-bool stopLoading   = false;
-bool isFetching    = false;
-CURL *curl         = NULL;
-stb_vorbis *vorbis = NULL;
+static std::thread loadThread;
+static bool isLoading   = true;
+static bool isFetching  = false;
+static CURL *curl         = NULL;
+static stb_vorbis *vorbis = NULL;
 
-int channels = 0;
-size_t unusedSamples = 0;
-float **floatSamples = NULL;
-size_t  floatSamplesPos = 0;
-loadBuffer_t loadBuffer = {0};
-readBuffer_t readBuffer = {0};
+static int channels = 0;
+static size_t unusedSamples = 0;
+static float **floatSamples = NULL;
+static size_t  floatSamplesPos = 0;
+static loadBuffer_t loadBuffer = {0};
+static readBuffer_t readBuffer = {0};
 // buffer to construct blocks of data for vorbis decoder
-decodeBuffer_t decodeBuffer = {0};
+static decodeBuffer_t decodeBuffer = {0};
 typedef struct chunkBuffer_t {
-    short data[MAX_SAMPLES];
+    short data[SAMPLES_PER_DATA_REQUEST];
     size_t ptr;
 } chunkBuffer_t;
-chunkBuffer_t chunkBuffer = {0};
+static chunkBuffer_t chunkBuffer = {0};
 
 bool NetworkOggAudio::open(const char *url_link) {
     // Setting up curl
@@ -87,7 +95,7 @@ bool NetworkOggAudio::open(const char *url_link) {
     initialize(1, audio_info.sample_rate);
     // initialize(audio_info.channels, audio_info.sample_rate);
 
-    decodeBuffer.ptr = TEMP_BUFFER_SIZE; // ptr points to first byte that is not used
+    decodeBuffer.ptr = DECODE_BUFFER_SIZE; // ptr points to first byte that is not used
 
     printf("Radio started\n");
     return true;
@@ -95,7 +103,7 @@ bool NetworkOggAudio::open(const char *url_link) {
 
 NetworkOggAudio::~NetworkOggAudio() {
     NetworkOggAudio::stop();
-    stopLoading = true;
+    isLoading = false;
     if (loadThread.joinable())
         loadThread.join();
 
@@ -106,27 +114,29 @@ NetworkOggAudio::~NetworkOggAudio() {
     printf("Radio deinitialized\n");
 }
 
-//moves data in decodeBuffer to the start of buffer
-int moveDecodeBuffer() {
+/// @brief Move data in decodeBuffer to the start of buffer
+static int moveDecodeBuffer() {
     int move = decodeBuffer.ptr;
     decodeBuffer.ptr = 0;
 
-    if (move == 0 || move == TEMP_BUFFER_SIZE) return move;
+    if (move == 0 || move == DECODE_BUFFER_SIZE) return move;
 
-    for (size_t idx = 0; idx < TEMP_BUFFER_SIZE - move; idx++)
+    for (size_t idx = 0; idx < DECODE_BUFFER_SIZE - move; idx++)
         decodeBuffer.data[idx] = decodeBuffer.data[idx + move];
 
     return move;
 }
 
-void refillDecodeBuffer() {
+/// @brief Fill decode buffer with new data
+/// @brief Decode buffer acts like a queue: vorbis reads from the front, new data is pushed to the back
+static void refillDecodeBuffer() {
     size_t readAvailableBytes = readBuffer.size - (size_t) (readBuffer.readPtr - readBuffer.data);
-    // data is given to vorbis in packages of TEMP_BUFFER_SIZE  size
+    // data is given to vorbis in packages of DECODE_BUFFER_SIZE  size
 
     size_t bytesToLoad = decodeBuffer.ptr;
     moveDecodeBuffer();
 
-    size_t writeOffset = TEMP_BUFFER_SIZE - bytesToLoad;
+    size_t writeOffset = DECODE_BUFFER_SIZE - bytesToLoad;
     if (readAvailableBytes < bytesToLoad) {
         memcpy(decodeBuffer.data + writeOffset, readBuffer.readPtr, readAvailableBytes);
         writeOffset += readAvailableBytes;
@@ -142,7 +152,9 @@ void refillDecodeBuffer() {
 
 }
 
-float **getSamples(size_t *sampleCount) {
+/// @brief Get array of samples in float32 format
+/// @param sampleCount Number of samples that were decoded
+static float **getSamples(size_t *sampleCount) {
     int     samplesCount = 0;
     float **output = NULL;
 
@@ -153,7 +165,7 @@ float **getSamples(size_t *sampleCount) {
 
         int bytes_read = stb_vorbis_decode_frame_pushdata(vorbis,
                                                         decodeBuffer.data,
-                                                        TEMP_BUFFER_SIZE,
+                                                        DECODE_BUFFER_SIZE,
                                                         NULL,
                                                         &output,
                                                         &samplesCount);
@@ -169,7 +181,7 @@ float **getSamples(size_t *sampleCount) {
         if (samplesCount == 0)
             unsuccessfulDecodeAttempts++;
         if (bytes_read == 0)
-            decodeBuffer.ptr = TEMP_BUFFER_SIZE; // forcing to fill buffer with new data
+            decodeBuffer.ptr = DECODE_BUFFER_SIZE; // forcing to fill buffer with new data
 
         // if we get 0 samples too many time, flush data
         if (unsuccessfulDecodeAttempts > MAX_BAD_DECODE_ATTEMPTS) {
@@ -186,9 +198,9 @@ float **getSamples(size_t *sampleCount) {
 bool NetworkOggAudio::onGetData(Chunk& data) {
     ON_NET_AUDIO_DBG(printf("Data request:\n\n");)
 
-    data.sampleCount = MAX_SAMPLES;
+    data.sampleCount = SAMPLES_PER_DATA_REQUEST;
     chunkBuffer.ptr = 0;
-    while (chunkBuffer.ptr < MAX_SAMPLES) {
+    while (chunkBuffer.ptr < SAMPLES_PER_DATA_REQUEST) {
         if (unusedSamples == 0) {
             floatSamples = getSamples(&unusedSamples);
             floatSamplesPos = 0;
@@ -199,7 +211,7 @@ bool NetworkOggAudio::onGetData(Chunk& data) {
             }
         }
 
-        size_t samplesToGet = std::min(unusedSamples, MAX_SAMPLES-chunkBuffer.ptr);
+        size_t samplesToGet = std::min(unusedSamples, SAMPLES_PER_DATA_REQUEST-chunkBuffer.ptr);
         convert_channels_short_interleaved(1, chunkBuffer.data + chunkBuffer.ptr, 1, floatSamples, floatSamplesPos, samplesToGet);
 
         unusedSamples -= samplesToGet;
@@ -219,26 +231,29 @@ void NetworkOggAudio::onSeek(sf::Time timeOffset) {
     return;
 }
 
-void waitForSync() {
-    if (stopLoading)
+static void waitForSync() {
+    if (!isLoading)
         isFetching = false;
 
-    while (stopLoading) ;
+    while (!isLoading) ;
 
     isFetching = true;
 }
 
-void waitForLoadStop() {
-
+static void stopLoading() {
+    isLoading = false;
     while (isFetching) ;
 }
 
-void swapBuffers() {
-    // waiting for enough data to load
-    while (loadBuffer.size < MINIMUM_BUFFER_SIZE) ;
+static void resumeLoading() {
+    isLoading = true;
+}
 
-    stopLoading = true;
-    waitForLoadStop();
+static void swapBuffers() {
+    // waiting for enough data to load
+    while (loadBuffer.size < MINIMUM_LOAD_BUFFER_FILL) ;
+
+    stopLoading();
 
     std::swap(loadBuffer.data, readBuffer.data);
     std::swap(loadBuffer.size, readBuffer.size);
@@ -247,11 +262,11 @@ void swapBuffers() {
     loadBuffer.size    = 0;
 
     ON_NET_AUDIO_DBG(printf("Read buffer updated, %lu bytes available\n", readBuffer.size);)
-    stopLoading = false;
+    resumeLoading();
 }
 
 // curl write callback function
-size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
+static size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
     waitForSync();
 
     size_t realsize = size * nmemb;
@@ -277,7 +292,7 @@ size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
 }
 
 //this function must be performed async
-void fetchAudio() {
+static void fetchAudio() {
     curl_easy_perform(curl);
 }
 
