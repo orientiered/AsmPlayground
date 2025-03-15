@@ -4,6 +4,12 @@
 #include <stdint.h>
 #include <SFML/Audio.hpp>
 
+#ifdef NET_AUDIO_DBG
+    #define ON_NET_AUDIO_DBG(...) __VA_ARGS__
+#else
+    #define ON_NET_AUDIO_DBG(...) ;
+#endif
+
 const int64_t MINIMUM_BUFFER_SIZE = 64*1024; //64 kb
 // const size_t  FREE_START_SPACE    =
 const size_t TEMP_BUFFER_SIZE   = 16 * 1024; // 2 kb

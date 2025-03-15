@@ -165,13 +165,13 @@ float **getSamples(size_t *sampleCount) {
         }
         decodeBuffer.ptr += bytes_read;
 
-        printf("Vorbis read %d bytes and created %d samples\n", bytes_read, samplesCount);
+        ON_NET_AUDIO_DBG(printf("Vorbis read %d bytes and created %d samples\n", bytes_read, samplesCount);)
         if (samplesCount == 0)
             unsuccessfulDecodeAttempts++;
         if (bytes_read == 0)
             decodeBuffer.ptr = TEMP_BUFFER_SIZE; // forcing to fill buffer with new data
-        
-        // if we get 0 samples too many time, flush data 
+
+        // if we get 0 samples too many time, flush data
         if (unsuccessfulDecodeAttempts > MAX_BAD_DECODE_ATTEMPTS) {
             stb_vorbis_flush_pushdata(vorbis);
             unsuccessfulDecodeAttempts = 0;
@@ -182,15 +182,9 @@ float **getSamples(size_t *sampleCount) {
     return output;
 }
 
-void convertFloatAudioToSamples(short *dest, float *src, size_t size) {
-    for (size_t idx = 0; idx < size; idx++) {
-        dest[idx] = (signed short) ( src[size] * (32768) );
-    }
-}
-
 
 bool NetworkOggAudio::onGetData(Chunk& data) {
-    printf("Data request:\n\n");
+    ON_NET_AUDIO_DBG(printf("Data request:\n\n");)
 
     data.sampleCount = MAX_SAMPLES;
     chunkBuffer.ptr = 0;
@@ -206,11 +200,7 @@ bool NetworkOggAudio::onGetData(Chunk& data) {
         }
 
         size_t samplesToGet = std::min(unusedSamples, MAX_SAMPLES-chunkBuffer.ptr);
-        // convertFloatAudioToSamples(chunkBuffer.data + chunkBuffer.ptr, floatSamples[0], samplesToGet);
         convert_channels_short_interleaved(1, chunkBuffer.data + chunkBuffer.ptr, 1, floatSamples, floatSamplesPos, samplesToGet);
-        // int samplesGet = stb_vorbis_get_samples_short_interleaved(vorbis, channels,
-                                // chunkBuffer.data + chunkBuffer.ptr,
-                                // samplesToGet);
 
         unusedSamples -= samplesToGet;
         chunkBuffer.ptr += samplesToGet;
@@ -218,7 +208,7 @@ bool NetworkOggAudio::onGetData(Chunk& data) {
 
     }
     data.samples = chunkBuffer.data;
-    printf("Returned %d samples\n", data.sampleCount);
+    ON_NET_AUDIO_DBG(printf("Returned %d samples\n", data.sampleCount);)
 
     return true;
 
@@ -256,7 +246,7 @@ void swapBuffers() {
     readBuffer.readPtr = readBuffer.data;
     loadBuffer.size    = 0;
 
-    printf("Read buffer updated, %lu bytes available\n", readBuffer.size);
+    ON_NET_AUDIO_DBG(printf("Read buffer updated, %lu bytes available\n", readBuffer.size);)
     stopLoading = false;
 }
 
@@ -281,7 +271,7 @@ size_t writeCallback(char *data, size_t size, size_t nmemb, void *clientp) {
     mem->size += realsize;
     mem->data[mem->size] = 0;
 
-    printf("Fetched %ju bytes\n", realsize);
+    ON_NET_AUDIO_DBG(printf("Fetched %ju bytes\n", realsize);)
 
     return realsize;
 }
