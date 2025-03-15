@@ -7,9 +7,9 @@ const size_t MAX_INPUT_LEN = 63;
 const wchar_t BACKSPACE_SYMBOL = 8;
 
 //outline colors
-const sf::Color TEXTFORM_MAIN_COLOR(0x7e4f7eFF);
+const sf::Color TEXTFORM_MAIN_COLOR(0xFFFFFFFF);
 const sf::Color TEXTFORM_MAIN_BKG_COLOR(0x4f7e4fFF);
-const sf::Color TEXTFORM_SELECTED_COLOR(0x4f7e4fFF);
+const sf::Color TEXTFORM_SELECTED_COLOR(0xFFFFFFFF);
 const sf::Color TEXTFORM_SELECTED_BKG_COLOR(0x7e4f7eFF);
 const int TEXTFORM_FONT_SIZE = 52; // in pixels
 

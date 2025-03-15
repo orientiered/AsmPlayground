@@ -12,7 +12,9 @@ enum EXIT_CODES {
     WRITE_ERROR_EXIT = 5,
     CLOSE_ERROR_EXIT = 6,
     ALREADY_PATCHED_EXIT = 7,
-    BAD_HASH_EXIT = 8
+    BAD_HASH_EXIT = 8,
+
+    NO_CONFIG_MODE = 20
 };
 
 typedef struct PatchStatus {

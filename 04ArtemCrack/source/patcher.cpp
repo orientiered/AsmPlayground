@@ -44,10 +44,11 @@ enum EXIT_CODES loadConfig(const char *fileName) {
         printf("! No config found, assuming all file choices are correct\n");
         config.file = fopen(CONFIG_NAME, "w");
         config.hasConfig = false;
-    } else {
-        fscanf(config.file, "%ju %ju", &config.hash_original, &config.hash_patched);
+        return NO_CONFIG_MODE;
     }
 
+
+    fscanf(config.file, "%ju %ju", &config.hash_original, &config.hash_patched);
 
     return SUCCESS_EXIT;
 }
@@ -90,6 +91,7 @@ enum EXIT_CODES checkHashBeforePatch() {
 
     if (!config.hasConfig) {
         fprintf(config.file, "%ju\n", config.hash_before);
+        config.hash_original = config.hash_before;
         return SUCCESS_EXIT;
     }
 
@@ -115,6 +117,9 @@ enum EXIT_CODES checkHashAfterPatch() {
 
     if (!config.hasConfig) {
         fprintf(config.file, "%ju\n", config.hash_after);
+        // hash is calculated
+        config.hash_patched = config.hash_after;
+        config.hasConfig = true;
         return SUCCESS_EXIT;
     }
 
